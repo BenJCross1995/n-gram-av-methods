@@ -132,3 +132,6 @@ def main():
         docs = docs_df,
         path = save_loc
     )
+    
+if __name__ == "__main__":
+    main()
