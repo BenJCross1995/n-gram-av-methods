@@ -2,7 +2,7 @@
 
 #SBATCH -J wiki_t_gpt2
 #SBATCH -a 1-5
-#SBATCH -p himem
+#SBATCH -p multicore
 #SBATCH -t 7-0
 
 set -e  # optional: stop on error
