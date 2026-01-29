@@ -116,12 +116,15 @@ def main():
     print(f"There are {len(common)} n-grams in common!")
     
     # Get the no context scores
+    print("Scoring the No Context n-grams")
     no_context_df = score_ngrams_to_df(common, model, tokenizer, full_text=None, use_bos=True)
     
     # Get the known scores
+    print("Scoring the Known n-grams")
     known_scored_df = score_ngrams_to_df(common, model, tokenizer, full_text=known_text, use_bos=True)
     
     # Score the unknown phrases
+    print("Scoring the Unknown n-grams")
     unknown_scored_df = score_ngrams_to_df(common, model, tokenizer, full_text=unknown_text, use_bos=True)
     
     create_excel_template(

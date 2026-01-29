@@ -48,6 +48,6 @@ python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ng
     --save_loc "${SAVE_LOC}" \
     --completed_loc "${COMPLETED_LOC}" \
     --corpus "${CORPUS}" \
-    --data_type "${DATE_TYPE}" \
+    --data_type "${DATA_TYPE}" \
     --known_doc "${KNOWN_DOC}" \
     --unknown_doc "${UNKNOWN_DOC}"

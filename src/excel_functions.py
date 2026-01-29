@@ -11,7 +11,7 @@ def create_per_occurrence_table(known, unknown, no_context):
     base_score_table = (
         pd.concat([known[cols], unknown[cols]], ignore_index=True)
         .drop_duplicates(subset=key_cols, keep='first')
-        .sort_values(cols, ascending=[True, True, True, True, True])
+        .sort_values(key_cols, ascending=[True, True, True])
         .reset_index(drop=True)
     )
     
@@ -32,20 +32,42 @@ def create_per_occurrence_table(known, unknown, no_context):
 
     return base_score_table
 
-def create_per_phrase_table(per_occurrence_table):
-    """Create an aggregated version of the table which contains the value per phrase occurrence"""
-    
+import pandas as pd
+
+def create_per_phrase_table(per_occurrence_table: pd.DataFrame) -> pd.DataFrame:
+    """Create an aggregated version of the table which contains the value per phrase (averaged over occurrences)."""
+
+    # Desired output key column order (same as your original function)
     key_cols = ['phrase_num', 'phrase', 'tokens', 'num_tokens']
     skip_cols = ['phrase_occurrence']
-    
-    # average everything that's not a key or skipped (only numeric columns will actually be averaged)
-    avg_cols = [c for c in per_occurrence_table.columns if c not in set(key_cols + skip_cols)]
 
+    # Group keys must exclude list-typed 'tokens'
+    group_keys = ['phrase_num', 'phrase', 'num_tokens']
+
+    # Average everything that's not a key or skipped (preserve original column order)
+    avg_cols = [
+        c for c in per_occurrence_table.columns
+        if c not in set(key_cols + skip_cols)
+    ]
+
+    # 1) aggregate without tokens
     per_phrase_table = (
         per_occurrence_table
-        .groupby(key_cols, as_index=False)[avg_cols]
+        .groupby(group_keys, as_index=False)[avg_cols]
         .mean(numeric_only=True)
     )
+
+    # 2) bring tokens back (guaranteed 1:1 by your assumption)
+    tokens_map = (
+        per_occurrence_table[['phrase_num', 'phrase', 'tokens']]
+        .drop_duplicates(subset=['phrase_num', 'phrase'])
+    )
+
+    per_phrase_table = per_phrase_table.merge(tokens_map, on=['phrase_num', 'phrase'], how='left')
+
+    # 3) reorder columns to match your original output order:
+    # key_cols first, then averaged columns (in original order)
+    per_phrase_table = per_phrase_table[key_cols + avg_cols]
 
     return per_phrase_table
 
