@@ -115,9 +115,6 @@ def main():
     
     print(f"There are {len(common)} n-grams in common!")
     
-    # Use the length to label phrases phrase_01 etc.
-    width = len(str(len(common)))
-    
     # Get the no context scores
     no_context_df = score_ngrams_to_df(common, model, tokenizer, full_text=None, use_bos=True)
     

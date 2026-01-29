@@ -78,6 +78,25 @@ def create_summary_by_token_num(per_phrase_table: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(rows).sort_values('min_token_size').reset_index(drop=True)
 
+def create_final_metadata(metadata: pd.DataFrame, score_by_token_num: pd.DataFrame) -> pd.DataFrame:
+    """
+    Replicate each metadata row the same number of times as there are rows in score_by_token_num,
+    and attach the score_by_token_num rows to each replicated block.
+    """
+    n = len(score_by_token_num)
+    if n == 0:
+        # nothing to attach; return empty with combined columns
+        return metadata.iloc[0:0].assign(**{c: pd.Series(dtype=score_by_token_num[c].dtype)
+                                           for c in score_by_token_num.columns})
+
+    # repeat metadata rows (each row becomes a block of n rows)
+    meta_rep = metadata.loc[metadata.index.repeat(n)].reset_index(drop=True)
+
+    # tile score rows to match metadata repetition
+    score_rep = pd.concat([score_by_token_num] * len(metadata), ignore_index=True)
+
+    return pd.concat([meta_rep, score_rep.reset_index(drop=True)], axis=1)
+
 def create_excel_template(
     known: pd.DataFrame,
     unknown: pd.DataFrame,
@@ -85,12 +104,6 @@ def create_excel_template(
     metadata: pd.DataFrame,
     docs: pd.DataFrame,
     path: str | Path = "template.xlsx",
-    known_sheet: str = "known",
-    unknown_sheet: str = "unknown",
-    nc_sheet: str = "no context",
-    metadata_sheet: str = "metadata",
-    docs_sheet: str = "docs",
-    phrase_score_sheet: str = "scores"
 ) -> None:
     """
     Writes all sheets, builds a distinct phrases 'LLR' table, adds include_phrase lookups
@@ -107,6 +120,9 @@ def create_excel_template(
     # Now summarise at the num tokens level
     summary_by_num_tokens_df = create_summary_by_token_num(per_phrase_df)
     
+    # Now create the final metadata table which is a replication of metadata with token level scores
+    final_metadata = create_final_metadata(metadata, summary_by_num_tokens_df)
+    
     # Choose writer mode safely
     writer_mode = "a" if path.exists() else "w"
     writer_kwargs = {"engine": "openpyxl", "mode": writer_mode}
@@ -115,9 +131,11 @@ def create_excel_template(
         
     with pd.ExcelWriter(path, **writer_kwargs) as writer:
         # Write sheets
-        docs.to_excel(writer, index=False, sheet_name=docs_sheet)
-        known.to_excel(writer, index=False, sheet_name=known_sheet)
-        unknown.to_excel(writer, index=False, sheet_name=unknown_sheet)
-        no_context.to_excel(writer, index=False, sheet_name=nc_sheet)
-        distinct_phrases.to_excel(writer, index=False, sheet_name=phrase_score_sheet)
-        metadata.to_excel(writer, index=False, sheet_name=metadata_sheet)
+        docs.to_excel(writer, index=False, sheet_name="docs")
+        known.to_excel(writer, index=False, sheet_name="known")
+        unknown.to_excel(writer, index=False, sheet_name="unknown")
+        no_context.to_excel(writer, index=False, sheet_name="no context")
+        per_occurrence_df.to_excel(writer, index=False, sheet_name="phrase occurrence score")
+        per_phrase_df.to_excel(writer, index=False, sheet_name="phrase score")
+        summary_by_num_tokens_df.to_excel(writer, index=False, sheet_name="score by tokens")
+        final_metadata.to_excel(writer, index=False, sheet_name="metadata")
