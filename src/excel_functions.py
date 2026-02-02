@@ -32,8 +32,6 @@ def create_per_occurrence_table(known, unknown, no_context):
 
     return base_score_table
 
-import pandas as pd
-
 def create_per_phrase_table(per_occurrence_table: pd.DataFrame) -> pd.DataFrame:
     """Create an aggregated version of the table which contains the value per phrase (averaged over occurrences)."""
 

@@ -91,7 +91,32 @@ def main():
     problem_metadata = agg_metadata[(agg_metadata['known_doc_id'] == args.known_doc)
                                     & (agg_metadata['unknown_doc_id'] == args.unknown_doc)].reset_index()
     problem_metadata['target'] = problem_metadata['known_author'] == problem_metadata['unknown_author']
-    problem_metadata['scoring_model'] = model_name
+    
+    # Some column rearranging
+    # data_type before corpus
+    corpus_idx = problem_metadata.columns.get_loc('corpus')
+    if 'data_type' in problem_metadata.columns:
+        problem_metadata.drop(columns=['data_type'], inplace=True)
+    problem_metadata.insert(corpus_idx, 'data_type', args.data_type)
+
+    # scoring_model after corpus
+    corpus_idx = problem_metadata.columns.get_loc('corpus')  # re-fetch (indices may have shifted)
+    if 'scoring_model' in problem_metadata.columns:
+        problem_metadata.drop(columns=['scoring_model'], inplace=True)
+    problem_metadata.insert(corpus_idx + 1, 'scoring_model', model_name)
+    
+    # problem before known_author (always move; adjust index if problem was before)
+    if 'problem' in problem_metadata.columns and 'known_author' in problem_metadata.columns:
+        problem_idx = problem_metadata.columns.get_loc('problem')
+        known_author_idx = problem_metadata.columns.get_loc('known_author')
+
+        problem_col = problem_metadata.pop('problem')
+
+        # if problem was before known_author, known_author shifted left by 1 after pop
+        if problem_idx < known_author_idx:
+            known_author_idx -= 1
+
+        problem_metadata.insert(known_author_idx, 'problem', problem_col)
 
     # -----
     # Create document dataframe
