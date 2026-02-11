@@ -4,7 +4,7 @@ import torch
 import pandas as pd
 import torch.nn.functional as F
 
-from n_gram_tracing import tokens_to_text, texts_around_each_ngram
+from n_gram_tracing import tokens_to_text, texts_around_each_ngram, get_trimmed_context_before_span
     
 def score_ngrams(
     ngram: Union[str, Sequence[str]],
@@ -112,7 +112,8 @@ def score_ngrams_to_df(
     full_text: str | None = None,
     *,
     lowercase: bool = True,
-    use_bos: bool = False
+    use_bos: bool = False,
+    num_tokens: Optional[int] = None
 ) -> pd.DataFrame:
     """Build a test DataFrame with:
       - phrase_num (1-based index in ngrams list)
@@ -144,9 +145,28 @@ def score_ngrams_to_df(
             continue
 
         # with context: score every occurrence
-        occ_texts = texts_around_each_ngram(full_text, phrase, lowercase=lowercase)
+        prefixes, token_spans, tokenized_text = texts_around_each_ngram(
+            full_text,
+            phrase, 
+            lowercase=lowercase,
+            return_token_spans=True, 
+            return_tokenized_text=True,
+            tokenizer=tokenizer
+        )
 
-        for phrase_occurrence, occ_text in enumerate(occ_texts, start=1):
+        for i, (prefix, tok_span) in enumerate(zip(prefixes, token_spans), start=1):
+            
+            if num_tokens:
+                occ_text = get_trimmed_context_before_span(
+                    tokens = tokenized_text,
+                    token_span = tok_span,
+                    max_tokens = num_tokens,
+                    return_text = True,
+                    tokenizer = tokenizer
+                )
+            else:
+                occ_text = prefix
+                
             res = score_ngrams(
                 ngram=ng,
                 model=model,
@@ -155,7 +175,12 @@ def score_ngrams_to_df(
                 lowercase=lowercase,
                 use_bos=use_bos
             )
-            rows.append({"phrase_num": phrase_num, "phrase_occurrence": phrase_occurrence, **res})
+            
+            rows.append({
+                "phrase_num": phrase_num,
+                "phrase_occurrence": i,
+                **res
+            })
 
     df = pd.DataFrame(rows)
 

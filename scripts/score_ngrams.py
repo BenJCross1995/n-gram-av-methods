@@ -33,6 +33,7 @@ def parse_args():
     # N-gram
     ap.add_argument("--ngram_n", type=int, default=2)
     ap.add_argument("--lowercase", action="store_true")
+    ap.add_argument("--num_tokens", type=int, default=None)
         
     return ap.parse_args()
 
@@ -91,6 +92,7 @@ def main():
     problem_metadata = agg_metadata[(agg_metadata['known_doc_id'] == args.known_doc)
                                     & (agg_metadata['unknown_doc_id'] == args.unknown_doc)].reset_index()
     problem_metadata['target'] = problem_metadata['known_author'] == problem_metadata['unknown_author']
+    problem_metadata['max_context_tokens'] = args.num_tokens
     
     # Some column rearranging
     # data_type before corpus
@@ -146,11 +148,11 @@ def main():
     
     # Get the known scores
     print("Scoring the Known n-grams")
-    known_scored_df = score_ngrams_to_df(common, model, tokenizer, full_text=known_text, use_bos=True)
+    known_scored_df = score_ngrams_to_df(common, model, tokenizer, full_text=known_text, use_bos=True, num_tokens=args.num_tokens)
     
     # Score the unknown phrases
     print("Scoring the Unknown n-grams")
-    unknown_scored_df = score_ngrams_to_df(common, model, tokenizer, full_text=unknown_text, use_bos=True)
+    unknown_scored_df = score_ngrams_to_df(common, model, tokenizer, full_text=unknown_text, use_bos=True, num_tokens=args.num_tokens)
     
     create_excel_template(
         known = known_scored_df,

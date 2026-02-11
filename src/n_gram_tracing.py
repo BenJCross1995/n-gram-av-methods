@@ -167,17 +167,145 @@ def texts_before_each_ngram(
 
 # -----FUNCTIONS TO FIND TEXT INCLUDING N-GRAM----- #
 
+# --- helper: convert char spans -> token spans (best with HF *fast* tokenizer) ---
+
+def _char_spans_to_token_spans(
+    text: str,
+    char_spans: List[Tuple[int, int]],
+    tokenizer: Any,
+) -> List[Tuple[int, int]]:
+    """
+    Convert [(char_start, char_end), ...] -> [(tok_start, tok_end), ...].
+
+    Preferred path uses return_offsets_mapping=True (fast tokenizers).
+    Fallback path counts tokens in prefixes (can be approximate for some tokenizers).
+    """
+    # --- preferred: offsets mapping ---
+    try:
+        enc = tokenizer(
+            text,
+            add_special_tokens=False,
+            return_offsets_mapping=True,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+        )
+        offsets = enc.get("offset_mapping", None)
+        if offsets is None:
+            raise ValueError("No offset_mapping")
+
+        # batch vs non-batch
+        if offsets and isinstance(offsets[0], (list, tuple)) and len(offsets[0]) == 2 and isinstance(offsets[0][0], int):
+            token_offsets = offsets  # [(s,e), ...]
+        else:
+            token_offsets = offsets[0]  # [[(s,e), ...]] -> take first
+
+        token_spans: List[Tuple[int, int]] = []
+        for s_char, e_char in char_spans:
+            t_start = None
+            t_end = None
+
+            for i, (ts, te) in enumerate(token_offsets):
+                if ts is None or te is None or ts == te:
+                    continue
+                if (te > s_char) and (ts < e_char):  # overlaps char span
+                    if t_start is None:
+                        t_start = i
+                    t_end = i + 1  # exclusive
+
+            if t_start is None:
+                # no overlap (e.g. whitespace-only match) -> empty span at nearest boundary
+                before = 0
+                for ts, te in token_offsets:
+                    if ts is None or te is None or ts == te:
+                        continue
+                    if te <= s_char:
+                        before += 1
+                token_spans.append((before, before))
+            else:
+                token_spans.append((t_start, t_end))  # type: ignore[arg-type]
+
+        return token_spans
+
+    except Exception:
+        # --- fallback: token counts in prefixes (approx for some tokenizers) ---
+        token_spans: List[Tuple[int, int]] = []
+        for s_char, e_char in char_spans:
+            try:
+                s_ids = tokenizer(text[:s_char], add_special_tokens=False).get("input_ids")
+                e_ids = tokenizer(text[:e_char], add_special_tokens=False).get("input_ids")
+                if s_ids is None or e_ids is None:
+                    raise TypeError
+                if s_ids and isinstance(s_ids[0], (list, tuple)):
+                    s_ids = s_ids[0]
+                if e_ids and isinstance(e_ids[0], (list, tuple)):
+                    e_ids = e_ids[0]
+                token_spans.append((len(s_ids), len(e_ids)))
+            except Exception:
+                # last-ditch for tokenizers without __call__ dict output
+                s_ids = tokenizer.encode(text[:s_char], add_special_tokens=False)
+                e_ids = tokenizer.encode(text[:e_char], add_special_tokens=False)
+                token_spans.append((len(s_ids), len(e_ids)))
+        return token_spans
+
+
+# -----FUNCTIONS TO FIND TEXT INCLUDING N-GRAM----- 
+
+def _tokenize_full_text(text: str, tokenizer: Any) -> List[Any]:
+    """
+    Tokenise the full text in a way that aligns with token spans (i.e., ids->tokens).
+    Returns a list of tokens if possible, otherwise returns ids.
+    """
+    try:
+        enc = tokenizer(
+            text,
+            add_special_tokens=False,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+        )
+        input_ids = enc.get("input_ids")
+        if input_ids and isinstance(input_ids[0], (list, tuple)):
+            input_ids = input_ids[0]
+        if input_ids is None:
+            raise TypeError
+    except Exception:
+        input_ids = tokenizer.encode(text, add_special_tokens=False)
+
+    if hasattr(tokenizer, "convert_ids_to_tokens"):
+        return tokenizer.convert_ids_to_tokens(input_ids)
+
+    # fallback
+    if hasattr(tokenizer, "tokenize"):
+        return list(tokenizer.tokenize(text))
+
+    return input_ids
+
 def find_all_ngram_spans(
     text: str,
     ngram: str,
     *,
     start: int = 0,
     lowercase: bool = True,
-    allow_overlaps: bool = False
-) -> List[Tuple[int, int]]:
+    allow_overlaps: bool = False,
+    tokenizer: Optional[Any] = None,
+    return_token_spans: bool = False,
+    return_tokenized_text: bool = False,
+) -> Any:
     """
-    Return [(start_idx, end_idx), ...] for every occurrence of `ngram` in `text`.
-    end_idx is exclusive (i.e., slice-ready: text[start:end]).
+    Return spans for every occurrence of `ngram` in `text`.
+
+    Default (unchanged): returns [(char_start, char_end), ...] (end exclusive).
+
+    If return_token_spans=True, requires tokenizer and returns:
+      (char_spans, token_spans)
+
+    If return_tokenized_text=True, requires tokenizer and appends:
+      tokenized_text
+
+    Return shapes:
+      - neither flag: char_spans
+      - token only: (char_spans, token_spans)
+      - tokenized only: (char_spans, tokenized_text)
+      - both: (char_spans, token_spans, tokenized_text)
     """
     if not ngram:
         raise ValueError("ngram must be non-empty")
@@ -199,7 +327,30 @@ def find_all_ngram_spans(
         spans.append((s, e))
         i = s + step
 
-    return spans
+    # old behaviour
+    if not return_token_spans and not return_tokenized_text:
+        return spans
+
+    if tokenizer is None:
+        raise ValueError(
+            "tokenizer must be provided when return_token_spans=True or return_tokenized_text=True"
+        )
+
+    token_spans = None
+    tokenized_text = None
+
+    if return_token_spans:
+        token_spans = _char_spans_to_token_spans(text, spans, tokenizer)
+
+    if return_tokenized_text:
+        tokenized_text = _tokenize_full_text(text, tokenizer)
+
+    if return_token_spans and return_tokenized_text:
+        return spans, token_spans, tokenized_text
+    if return_token_spans:
+        return spans, token_spans
+    # return_tokenized_text only
+    return spans, tokenized_text
 
 def texts_around_each_ngram(
     text: str,
@@ -208,22 +359,117 @@ def texts_around_each_ngram(
     start: int = 0,
     lowercase: bool = True,
     allow_overlaps: bool = False,
-    return_spans: bool = False
+    return_spans: bool = False,
+    tokenizer: Optional[Any] = None,
+    return_token_spans: bool = False,
+    return_tokenized_text: bool = False,
 ) -> Any:
     """
     For each occurrence of `ngram`, return:
-      - prefix_before: text[:start_idx]
-      - prefix_through_end: text[:end_idx]
+      - prefix_through_end: text[:end_idx]   (end_idx is character-based, unchanged)
 
-    If return_spans=True, returns (prefix_before_list, prefix_through_end_list, spans)
-    else returns (prefix_before_list, prefix_through_end_list)
+    Default (unchanged):
+      - return_spans=False -> prefix_through_end_list
+      - return_spans=True  -> (prefix_through_end_list, char_spans)
+
+    If return_token_spans=True (requires tokenizer):
+      - return_spans=False -> (prefix_through_end_list, token_spans)
+      - return_spans=True  -> (prefix_through_end_list, char_spans, token_spans)
+
+    If return_tokenized_text=True (requires tokenizer), appends tokenised full text.
     """
-    spans = find_all_ngram_spans(
-        text, ngram, start=start, lowercase=lowercase, allow_overlaps=allow_overlaps
+    if (return_token_spans or return_tokenized_text) and tokenizer is None:
+        raise ValueError(
+            "tokenizer must be provided when return_token_spans=True or return_tokenized_text=True"
+        )
+
+    spans_out = find_all_ngram_spans(
+        text,
+        ngram,
+        start=start,
+        lowercase=lowercase,
+        allow_overlaps=allow_overlaps,
+        tokenizer=tokenizer,
+        return_token_spans=return_token_spans,
+        return_tokenized_text=return_tokenized_text,
     )
 
-    prefix_through_end = [text[:e] for _, e in spans]
+    # unpack outputs from find_all_ngram_spans
+    token_spans = None
+    tokenized_text = None
 
+    if return_token_spans and return_tokenized_text:
+        char_spans, token_spans, tokenized_text = spans_out
+    elif return_token_spans:
+        char_spans, token_spans = spans_out
+    elif return_tokenized_text:
+        char_spans, tokenized_text = spans_out
+    else:
+        char_spans = spans_out
+
+    prefix_through_end = [text[:e] for _, e in char_spans]
+
+    # Build return values while preserving existing behaviour unless new flags are on
     if return_spans:
-        return prefix_through_end, spans
+        if return_token_spans and return_tokenized_text:
+            return prefix_through_end, char_spans, token_spans, tokenized_text
+        if return_token_spans:
+            return prefix_through_end, char_spans, token_spans
+        if return_tokenized_text:
+            return prefix_through_end, char_spans, tokenized_text
+        return prefix_through_end, char_spans
+
+    # not return_spans
+    if return_token_spans and return_tokenized_text:
+        return prefix_through_end, token_spans, tokenized_text
+    if return_token_spans:
+        return prefix_through_end, token_spans
+    if return_tokenized_text:
+        return prefix_through_end, tokenized_text
     return prefix_through_end
+
+def get_trimmed_context_before_span(
+    tokens: List[Any],
+    token_span: Tuple[int, int],
+    max_tokens: Optional[int] = None,
+    return_text: bool = False,
+    tokenizer: Optional[Any] = None
+):
+    """
+    Return the context tokens before a span (optionally trimmed to `max_tokens`),
+    and the phrase tokens at that span.
+
+    Parameters
+    ----------
+    tokens : list
+        Tokenised full text (e.g. from tokenizer.convert_ids_to_tokens(...))
+    token_span : tuple[int, int]
+        Token span of the phrase (start, end), end-exclusive.
+    max_tokens : int or None, optional
+        If set, trims the context before the phrase to the last `max_tokens`.
+
+    Returns
+    -------
+    context_tokens : list
+        Tokens before the span, optionally trimmed
+    phrase_tokens : list
+        The tokens in the span itself
+    """
+    start, end = token_span
+    context = tokens[:start]
+    phrase = tokens[start:end]
+
+    if max_tokens is not None and len(context) > max_tokens:
+        context = context[-max_tokens:]  # take last max_tokens only
+
+    if not return_text:
+        return context + phrase
+    else:
+        if not tokenizer:
+            raise ValueError(
+            "tokenizer must be provided when return_text=True"
+            )
+        else:
+            plain_text = tokens_to_text(context + phrase, tokenizer)
+            
+        return plain_text
