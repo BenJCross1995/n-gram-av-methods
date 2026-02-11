@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-FIXED_NUM_TOKENS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+FIXED_NUM_TOKENS = [None, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 
 def parse_args():
     ap = argparse.ArgumentParser(
@@ -35,12 +35,11 @@ def parse_args():
 
     return ap.parse_args()
 
-
-def with_suffix_dir(base_dir: str, num_tokens: int) -> str:
-    # Avoid ".../raw/" -> ".../raw__100"
+def with_suffix_dir(base_dir: str, num_tokens: int | None) -> str:
     base_dir = base_dir.rstrip("/\\")
+    if num_tokens is None:
+        return base_dir
     return f"{base_dir}_{num_tokens}"
-
 
 def main():
     args = parse_args()
