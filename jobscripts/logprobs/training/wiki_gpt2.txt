@@ -18,7 +18,7 @@ CORPUS="Wiki"
 DATA_TYPE="training"
 MODEL="gpt2"
 MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
-COMPUTE_TYPE="himem"
+COMPUTE_TYPE="himem_32"
 
 # Input lists produced in step 1:
 KNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_doc_list.txt"
