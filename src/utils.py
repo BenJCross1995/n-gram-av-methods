@@ -2,6 +2,9 @@ import re
 
 import pandas as pd
 
+from pathlib import Path
+from typing import Union, List
+
 def create_temp_doc_id(input_text):
     """Create a new doc id by preprocessing the current id.
     If [...] exists, use what's inside; otherwise use the full string.
@@ -95,3 +98,84 @@ def build_metadata_df(filtered_metadata: pd.DataFrame,
     exploded.insert(0, 'sample_id', pd.RangeIndex(start=1, stop=len(exploded) + 1))
 
     return exploded
+
+def list_xlsx_files(
+    directory: Union[str, Path],
+    *,
+    recursive: bool = False,
+    include_temp: bool = False,
+    sort: bool = True,
+) -> List[Path]:
+    """
+    Return all .xlsx files in a directory as a list of Paths.
+
+    Parameters
+    ----------
+    directory : str | Path
+        Directory to search.
+    recursive : bool
+        If True, search subdirectories too.
+    include_temp : bool
+        If True, include Excel temp files like "~$something.xlsx".
+    sort : bool
+        If True, sort results by path.
+
+    Returns
+    -------
+    List[Path]
+        Paths to .xlsx files.
+    """
+    directory = Path(directory)
+    if not directory.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+    if not directory.is_dir():
+        raise NotADirectoryError(f"Not a directory: {directory}")
+
+    pattern = "**/*.xlsx" if recursive else "*.xlsx"
+    files = list(directory.glob(pattern))
+
+    if not include_temp:
+        files = [p for p in files if not p.name.startswith("~$")]
+
+    if sort:
+        files = sorted(files)
+
+    return files
+
+def _get_corpus_expected_files():
+    """Function which returns the expected number of files by corpus and data type"""
+    
+    expected_by_corpus = {
+        ("ACL", "training"): 186,
+        ("ACL", "test"): 280,
+        # NOTE - Got no value for these
+        ("All-the-news", "training"): 0,
+        ("All-the-news", "test"): 0,
+        ("Amazon", "training"): 6400,
+        ("Amazon", "test"): 9600,
+        ("Enron", "training"): 224,
+        ("Enron", "test"): 340,
+        # NOTE - Need value for these
+        ("IMDB", "training"): 0,
+        ("IMDB", "test"): 0,
+        ("Koppel's Blogs", "training"): 3600,
+        ("Koppel's Blogs", "test"): 5400,
+        ("Perverted Justice", "training"): 380,
+        ("Perverted Justice", "test"): 574,
+        ("Reddit", "training"): 2400,
+        ("Reddit", "test"): 3600,
+        ("StackExchange", "training"): 150,
+        ("StackExchange", "test"): 228,
+        ("The Apricity", "training"): 900,
+        ("The Apricity", "test"): 1322,
+        ("The Telegraph", "training"): 440,
+        ("The Telegraph", "test"): 664,
+        ("TripAdvisor", "training"): 120,
+        ("TripAdvisor", "test"): 480,
+        ("Wiki", "training"): 450,
+        ("Wiki", "test"): 672,
+        ("Yelp", "training"): 1600,
+        ("Yelp", "test"): 2400
+    }
+    
+    return expected_by_corpus
