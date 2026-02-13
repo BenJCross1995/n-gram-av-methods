@@ -3,42 +3,47 @@ import re
 import pandas as pd
 
 def create_temp_doc_id(input_text):
-    """Create a new doc id by preprocessing the current id"""
-    
-    # Extract everything between the brackets
-    match = re.search(r'\[(.*?)\]', input_text)
-    
-    if match:
-        extracted_text = match.group(1)
-        # Replace all punctuation and spaces with "_"
-        cleaned_text = re.sub(r'[^\w]', '_', extracted_text)
-        # Replace multiple underscores with a single "_"
-        final_text = re.sub(r'_{2,}', '_', cleaned_text)
-        return final_text.lower()
-        
-    return None
+    """Create a new doc id by preprocessing the current id.
+    If [...] exists, use what's inside; otherwise use the full string.
+    """
+    if input_text is None or (isinstance(input_text, float) and pd.isna(input_text)):
+        return None
+
+    s = str(input_text)
+
+    match = re.search(r'\[(.*?)\]', s)
+    extracted_text = match.group(1) if match else s  # <-- fallback to full string
+
+    cleaned_text = re.sub(r'[^\w]+', '_', extracted_text.strip())
+    cleaned_text = re.sub(r'_{2,}', '_', cleaned_text)
+    cleaned_text = re.sub(r'^_+|_+$', '', cleaned_text)  # trim edge underscores
+
+    return cleaned_text.lower() if cleaned_text else None
 
 def apply_temp_doc_id(df):
-    """Apply the doc id function on the dataframe"""
+    """Apply the doc id function on the dataframe safely."""
+    df = df.copy()
 
-    # If both ID columns already exist then return df as it is
+    # If both already exist, do nothing
     if 'doc_id' in df.columns and 'orig_doc_id' in df.columns:
         return df
-        
-    # Rename doc_id to orig_doc_id first    
-    df.rename(columns={'doc_id': 'orig_doc_id'}, inplace=True)
 
-    # Create the new doc_id column directly
-    df['doc_id'] = df['orig_doc_id'].apply(create_temp_doc_id)
+    # Determine source column for the original id
+    if 'orig_doc_id' in df.columns:
+        src = 'orig_doc_id'
+    elif 'doc_id' in df.columns:
+        df = df.rename(columns={'doc_id': 'orig_doc_id'})
+        src = 'orig_doc_id'
+    else:
+        raise KeyError("Expected a 'doc_id' or 'orig_doc_id' column in df.")
 
-    # df.drop("orig_doc_id", axis=1, inplace=True)
-    
-    # Move the new doc_id column to the front
-    cols = ['doc_id', 'orig_doc_id'] + [col for col in df.columns if col not in ['doc_id', 'orig_doc_id', 'text']] + ['text']
+    df['doc_id'] = df[src].apply(create_temp_doc_id)
 
-    df = df[cols]
-
-    return df
+    # Reorder columns (only if 'text' exists)
+    front = ['doc_id', 'orig_doc_id'] if 'orig_doc_id' in df.columns else ['doc_id', src]
+    rest = [c for c in df.columns if c not in set(front + (['text'] if 'text' in df.columns else []))]
+    cols = front + rest + (['text'] if 'text' in df.columns else [])
+    return df[cols]
 
 def build_metadata_df(filtered_metadata: pd.DataFrame,
                       known_df: pd.DataFrame,
