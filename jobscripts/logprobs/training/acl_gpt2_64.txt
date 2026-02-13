@@ -4,6 +4,8 @@
 #SBATCH -a 1-186
 #SBATCH -p himem
 #SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
 
 set -e  # optional: stop on error
 
@@ -18,7 +20,7 @@ CORPUS="ACL"
 DATA_TYPE="training"
 MODEL="gpt2"
 MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
-COMPUTE_TYPE="himem_32"
+COMPUTE_TYPE="himem_64"
 
 # Input lists produced in step 1:
 KNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_doc_list.txt"

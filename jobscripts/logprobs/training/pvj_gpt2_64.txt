@@ -1,9 +1,11 @@
 #!/bin/bash --login
 
-#SBATCH -J acl_tr_gpt2
-#SBATCH -a 1-186
+#SBATCH -J pvj_tr_gpt2
+#SBATCH -a 1-380
 #SBATCH -p himem
 #SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
 
 set -e  # optional: stop on error
 
@@ -14,11 +16,11 @@ module load apps/binapps/anaconda3/2024.10
 conda activate venv
 
 # Define variables
-CORPUS="ACL"
+CORPUS="Perverted Justice"
 DATA_TYPE="training"
 MODEL="gpt2"
 MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
-COMPUTE_TYPE="himem_32"
+COMPUTE_TYPE="himem_64"
 
 # Input lists produced in step 1:
 KNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_doc_list.txt"
