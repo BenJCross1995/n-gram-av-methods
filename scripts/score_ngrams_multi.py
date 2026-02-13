@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-FIXED_NUM_TOKENS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, None]
+FIXED_NUM_TOKENS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 
 def parse_args():
     ap = argparse.ArgumentParser(
