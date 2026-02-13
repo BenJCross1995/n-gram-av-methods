@@ -18,6 +18,7 @@ CORPUS="Enron"
 DATA_TYPE="training"
 MODEL="gpt2"
 MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
+COMPUTE_TYPE="himem"
 
 # Input lists produced in step 1:
 KNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_doc_list.txt"
@@ -50,7 +51,8 @@ python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ng
     --corpus "${CORPUS}" \
     --data_type "${DATA_TYPE}" \
     --known_doc "${KNOWN_DOC}" \
-    --unknown_doc "${UNKNOWN_DOC}"
+    --unknown_doc "${UNKNOWN_DOC}" \
+    --compute_type "${COMPUTE_TYPE}"
 
 # Run top impostors on the Nth file from parascore folder
 python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ngrams.py \
@@ -63,4 +65,5 @@ python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ng
     --corpus "${CORPUS}" \
     --data_type "${DATA_TYPE}" \
     --known_doc "${KNOWN_DOC}" \
-    --unknown_doc "${UNKNOWN_DOC}"
+    --unknown_doc "${UNKNOWN_DOC}" \
+    --compute_type "${COMPUTE_TYPE}"

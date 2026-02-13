@@ -30,6 +30,7 @@ def parse_args():
     ap.add_argument("--data_type", default="training")
     ap.add_argument("--known_doc")
     ap.add_argument("--unknown_doc")
+    ap.add_argument("--compute_type", default="himem")
     # N-gram
     ap.add_argument("--ngram_n", type=int, default=2)
     ap.add_argument("--lowercase", action="store_true")
@@ -93,6 +94,7 @@ def main():
                                     & (agg_metadata['unknown_doc_id'] == args.unknown_doc)].reset_index()
     problem_metadata['target'] = problem_metadata['known_author'] == problem_metadata['unknown_author']
     problem_metadata['max_context_tokens'] = args.num_tokens
+    problem_metadata['compute_type'] = args.comptute_type
     
     # Some column rearranging
     # data_type before corpus

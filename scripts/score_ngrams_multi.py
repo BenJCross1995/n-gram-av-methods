@@ -25,6 +25,7 @@ def parse_args():
     ap.add_argument("--data_type", default="training")
     ap.add_argument("--known_doc")
     ap.add_argument("--unknown_doc")
+    ap.add_argument("--compute_type", default="himem")
 
     # N-gram
     ap.add_argument("--ngram_n", type=int, default=2)
@@ -63,6 +64,7 @@ def main():
         "--known_doc", args.known_doc,
         "--unknown_doc", args.unknown_doc,
         "--ngram_n", str(args.ngram_n),
+        "--compute_type", args.compute_type,
     ]
 
     if args.lowercase:
