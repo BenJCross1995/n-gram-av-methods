@@ -10,12 +10,16 @@ import string
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from typing import List, Dict, Optional, Iterable
 
-def load_model(model_loc: str):
+def load_model(model_loc: str, load_model: bool = True):
     """Load a local AutoModelForCausalLM and its tokenizer."""
     tokenizer = AutoTokenizer.from_pretrained(model_loc)
-    model = AutoModelForCausalLM.from_pretrained(model_loc)
-    model.eval()
-    return tokenizer, model
+    
+    if load_model:
+        model = AutoModelForCausalLM.from_pretrained(model_loc)
+        model.eval()
+        return tokenizer, model
+    else:
+        return tokenizer
 
 # -------------------------------------------------------------- #
 # -- FUNCTIONS TO GET SPECIAL WHITESPACE CHARACTERS FOR MODEL -- #
