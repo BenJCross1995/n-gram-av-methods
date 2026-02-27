@@ -1,0 +1,58 @@
+#!/bin/bash --login
+
+#SBATCH -J wiki_tr_gpt2
+#SBATCH -a 1-450
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -e  # optional: stop on error
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# Define variables
+CORPUS="Wiki"
+DATA_TYPE="training"
+MODEL="gpt2"
+MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
+COMPUTE_TYPE="himem_64"
+
+# Input lists produced in step 1:
+KNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_doc_list.txt"
+UNKNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/unknown_doc_list.txt"
+
+# ---- Select the Nth line from each list (N = SLURM_ARRAY_TASK_ID) ----
+# Using awk with a variable for safety; exit after printing to avoid scanning whole file.
+KNOWN_DOC=$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NR==n {print; exit}' "$KNOWN_LIST")
+UNKNOWN_DOC=$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NR==n {print; exit}' "$UNKNOWN_LIST")
+
+KNOWN_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
+UNKNOWN_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+METADATA_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/metadata.rds"
+SAVE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/ngram_masking_logrpobs_n1/${DATA_TYPE}/${CORPUS}/${MODEL}/raw"
+COMPLETED_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/ngram_masking_logprobs_n1/${DATA_TYPE}/${CORPUS}/${MODEL}/raw"
+
+# ---- Select the Nth line from each list (N = SLURM_ARRAY_TASK_ID) ----
+# Using awk with a variable for safety; exit after printing to avoid scanning whole file.
+DOC_NAME=$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NR==n {print; exit}' "$PROBLEM_DOC_LIST")
+DATA_LOC="${DATA_DIR}/${DOC_NAME}.xlsx"
+
+# Run top impostors on the Nth file from parascore folder
+python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ngrams_multi.py \
+    --known_loc "${KNOWN_LOC}" \
+    --unknown_loc "${UNKNOWN_LOC}" \
+    --metadata_loc "${METADATA_LOC}" \
+    --model_loc "${MODEL_LOC}" \
+    --save_loc "${SAVE_LOC}" \
+    --completed_loc "${COMPLETED_LOC}" \
+    --corpus "${CORPUS}" \
+    --data_type "${DATA_TYPE}" \
+    --known_doc "${KNOWN_DOC}" \
+    --unknown_doc "${UNKNOWN_DOC}" \
+    --compute_type "${COMPUTE_TYPE}" \
+    --ngram_n "1"
