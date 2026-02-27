@@ -5,7 +5,7 @@ import unicodedata
 
 import pandas as pd
 
-from model_loading import load_model
+from model_loading import load_model, distinct_special_chars
 
 def ensure_tokens_are_lists(df):
     df = df.copy()
@@ -105,5 +105,53 @@ def filter_at_least_n_minus_1_specials(df: pd.DataFrame, special_token_list, n: 
     mask = df["tokens"].apply(should_remove)
     return df.loc[~mask].copy()
 
-def apply_ngram_filtering(df: pd.DataFrame, model_loc: str = None, tokenizer = None,
-                          special_token_list: list = None, min_tokens: int = 2):
+def filter_zero_special_tokens(df: pd.DataFrame, special_token_list) -> pd.DataFrame:
+    """
+    REMOVE rows where df['tokens'] contains ZERO special tokens.
+    Treats specials as matching anywhere inside a token (substring match).
+    Assumes df['tokens'] is a list (items cast to str).
+    """
+    specials = sorted(set(map(str, special_token_list)), key=len, reverse=True)
+    special_re = re.compile("|".join(re.escape(s) for s in specials)) if specials else None
+
+    def has_any_special(toks) -> bool:
+        if not special_re:
+            return False
+        return any(bool(special_re.search(str(t))) for t in toks)
+
+    zero_special = df["tokens"].apply(lambda toks: not has_any_special(toks))
+    return df.loc[~zero_special].copy()
+
+
+def apply_ngram_filtering(
+    df: pd.DataFrame,
+    model_loc: str = None,
+    token_col: str = 'tokens',
+    min_tokens: int = 2
+):
+    
+    tokenizer = load_model(model_loc, load_model=False)
+    special_tokens = distinct_special_chars(tokenizer=tokenizer)
+    
+    raw_tokens = ensure_tokens_are_lists(df)
+    print("Original token count:", len(raw_tokens))
+
+    filtered_tokens = filter_min_length(raw_tokens, min_tokens=2)
+    print("After filter_min_length:", len(filtered_tokens))
+
+    filtered_tokens = filter_only_special_tokens(filtered_tokens, special_tokens)
+    print("After filter_only_special_tokens:", len(filtered_tokens))
+
+    filtered_tokens = filter_only_numbers_and_special_tokens(filtered_tokens, special_tokens)
+    print("After filter_only_number_and_special_tokens:", len(filtered_tokens))
+
+    filtered_tokens = filter_only_punct_and_special_tokens(filtered_tokens, special_tokens)
+    print("After filter_only_punct_and_special_tokens:", len(filtered_tokens))
+
+    filtered_tokens = filter_at_least_n_minus_1_specials(filtered_tokens, special_tokens)
+    print("After filter_at_least_n_minus_1_specials:", len(filtered_tokens))
+
+    filtered_tokens = filter_zero_special_tokens(filtered_tokens, special_tokens)
+    print("After filter_zero_special_tokens:", len(filtered_tokens))
+    
+    return filtered_tokens

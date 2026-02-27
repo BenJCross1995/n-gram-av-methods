@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Sequence, Union
 import torch
+import math
 
 import pandas as pd
 import torch.nn.functional as F
@@ -94,15 +95,23 @@ def score_ngrams(
     ngram_log_probs = [v for v in tail if v is not None]
     ngram_sum_log_probs = float(sum(ngram_log_probs))
 
+    # perplexity over the same n-gram tokens
+    # if ngram_log_probs:
+    #     n = len(ngram_log_probs)
+    #     ngram_perplexity = float(math.exp(-ngram_sum_log_probs / n))
+    # else:
+    #     ngram_perplexity = None 
+        
     return {
         "phrase": phrase,
         "tokens": ngram_tokens,
         "num_tokens": ngram_len,
+        "text_len": text_len,
         "log_probs": ngram_log_probs,
         "sum_log_probs": ngram_sum_log_probs,
-        "text_tokens": tokens,
-        "text_len": text_len,
-        "text_log_probs": log_probs,
+        # "perplexity": ngram_perplexity,
+        # "text_tokens": tokens,
+        # "text_log_probs": log_probs,
     }
     
 def score_ngrams_to_df(
