@@ -7,6 +7,11 @@ from pathlib import Path
 
 FIXED_NUM_TOKENS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
 
+FIXED_NUM_TOKENS_DETAILED = [
+    10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+    200, 300, 400, 500, 600, 700, 800, 900, 1000
+]
+
 def parse_args():
     ap = argparse.ArgumentParser(
         description="Run score_ngrams.py in a loop over fixed num_tokens values"
@@ -73,7 +78,7 @@ def main():
     # Only pass completed_loc if provided
     has_completed = bool(args.completed_loc)
 
-    for nt in FIXED_NUM_TOKENS:
+    for nt in FIXED_NUM_TOKENS_DETAILED:
         save_loc_nt = with_suffix_dir(args.save_loc, nt)
         completed_loc_nt = with_suffix_dir(args.completed_loc, nt) if has_completed else None
 
