@@ -1,9 +1,28 @@
 import re
-
+import platform
 import pandas as pd
 
 from pathlib import Path
 from typing import Union, List
+
+def get_base_location():
+    """
+    Returns the base location of my NAS drive depending on the current operating system.
+    Useful for if i want to run code on both laptops.
+    """
+
+    system = platform.system().lower()
+
+    if system == "windows":
+        base_loc = "//bc_nas_storage/BCross"
+    elif system == "darwin":  # macOS reports as 'Darwin'
+        base_loc = "/Volumes/BCross"
+    elif system == "linux":
+        base_loc = "/home/your_linux_path"
+    else:
+        raise ValueError(f"Unsupported operating system: {system}")
+
+    return base_loc
 
 def create_temp_doc_id(input_text):
     """Create a new doc id by preprocessing the current id.
@@ -155,6 +174,8 @@ def _get_corpus_expected_files():
         ("Amazon", "test"): 9600,
         ("Enron", "training"): 224,
         ("Enron", "test"): 340,
+        ("Enron Cleaned", "training"): 204,
+        ("Enron Cleaned", "test"): 318,
         # NOTE - Need value for these
         ("IMDB", "training"): 0,
         ("IMDB", "test"): 0,
