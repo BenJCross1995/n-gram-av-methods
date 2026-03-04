@@ -56,3 +56,18 @@ python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ng
     --unknown_doc "${UNKNOWN_DOC}" \
     --compute_type "${COMPUTE_TYPE}" \
     --ngram_n "1"
+
+# Run top impostors on the Nth file from parascore folder
+python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ngrams.py \
+    --known_loc "${KNOWN_LOC}" \
+    --unknown_loc "${UNKNOWN_LOC}" \
+    --metadata_loc "${METADATA_LOC}" \
+    --model_loc "${MODEL_LOC}" \
+    --save_loc "${SAVE_LOC}" \
+    --completed_loc "${COMPLETED_LOC}" \
+    --corpus "${CORPUS}" \
+    --data_type "${DATA_TYPE}" \
+    --known_doc "${KNOWN_DOC}" \
+    --unknown_doc "${UNKNOWN_DOC}" \
+    --compute_type "${COMPUTE_TYPE}" \
+    --ngram_n "1"
