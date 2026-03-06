@@ -33,7 +33,8 @@ def parse_args():
     ap.add_argument("--compute_type", default="himem")
 
     # N-gram
-    ap.add_argument("--ngram_n", type=int, default=2)
+    ap.add_argument("--min_len", type=int, default=None)
+    ap.add_argument("--max_len", type=int, default=None)
     ap.add_argument("--lowercase", action="store_true")
 
     # Keep for "same args" compatibility; ignored here (we override per loop)
@@ -68,7 +69,8 @@ def main():
         "--data_type", args.data_type,
         "--known_doc", args.known_doc,
         "--unknown_doc", args.unknown_doc,
-        "--ngram_n", str(args.ngram_n),
+        "--min_len", str(args.min_len),
+        "--max_len", str(args.max_len),
         "--compute_type", args.compute_type,
     ]
 

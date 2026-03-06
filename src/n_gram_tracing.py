@@ -4,21 +4,18 @@ from typing import Any, List, Sequence, Optional, Tuple
 def common_ngrams(
     text1: str,
     text2: str,
-    n: int,
     tokenizer: Optional[Any] = None,
     include_subgrams: bool = False,
     lowercase: bool = True,
 ) -> List[List[Any]]:
     """
-    Return shared n-grams (length >= n) between two texts as a list of lists.
+    Return shared n-grams between two texts as a list of lists.
 
     If include_subgrams is False, removes any shared n-gram that is a contiguous
     subspan of a longer shared n-gram.
 
     Output format: [[tok1, tok2, ...], [tok1, tok2, ...], ...]
     """
-    if n < 1:
-        raise ValueError("n must be >= 1")
 
     def _tokens(s: str) -> List[Any]:
         s2 = s.casefold() if lowercase else s
@@ -42,10 +39,10 @@ def common_ngrams(
             return tokenizer.convert_ids_to_tokens(input_ids)
         return input_ids
 
-    def _all_ngrams(seq: Sequence[Any], min_n: int) -> set[tuple[Any, ...]]:
+    def _all_ngrams(seq: Sequence[Any]) -> set[tuple[Any, ...]]:
         out: set[tuple[Any, ...]] = set()
         L = len(seq)
-        for k in range(min_n, L + 1):
+        for k in range(1, L + 1):
             for i in range(0, L - k + 1):
                 out.add(tuple(seq[i : i + k]))
         return out
@@ -53,21 +50,18 @@ def common_ngrams(
     seq1 = _tokens(text1)
     seq2 = _tokens(text2)
 
-    common = _all_ngrams(seq1, n) & _all_ngrams(seq2, n)
+    common = _all_ngrams(seq1) & _all_ngrams(seq2)
     if not common:
         return []
 
     if not include_subgrams:
-        # Keep only maximal n-grams (drop any that is a contiguous subspan of a longer one)
         common_sorted = sorted(common, key=len, reverse=True)
         kept: list[tuple[Any, ...]] = []
         for g in common_sorted:
-            # if g appears as a contiguous subspan of any already-kept longer gram, skip it
             is_subspan = False
-            for h in kept:  # h is longer or equal (because sorted desc)
+            for h in kept:
                 if len(h) <= len(g):
                     continue
-                # contiguous subspan check
                 for i in range(0, len(h) - len(g) + 1):
                     if h[i : i + len(g)] == g:
                         is_subspan = True
@@ -78,9 +72,35 @@ def common_ngrams(
                 kept.append(g)
         common = set(kept)
 
-    # Return as list[list]
     return [list(g) for g in sorted(common, key=lambda x: (len(x), x))]
 
+def filter_len_common_ngrams(
+    common_ngram_list: List[List[Any]],
+    min_len: Optional[int] = None,
+    max_len: Optional[int] = None,
+) -> List[List[Any]]:
+    """
+    Filter a list of common n-grams so only those with length between
+    min_len and max_len are kept.
+
+    If min_len is None, no lower bound is applied.
+    If max_len is None, no upper bound is applied.
+    If both are None, the input list is returned unchanged.
+    """
+    if min_len is not None and min_len < 1:
+        raise ValueError("min_len must be >= 1 or None")
+    if max_len is not None and max_len < 1:
+        raise ValueError("max_len must be >= 1 or None")
+    if min_len is not None and max_len is not None and min_len > max_len:
+        raise ValueError("min_len cannot be greater than max_len")
+
+    return [
+        gram
+        for gram in common_ngram_list
+        if (min_len is None or len(gram) >= min_len)
+        and (max_len is None or len(gram) <= max_len)
+    ]
+    
 def tokens_to_text(tokens: List[str], tokenizer: Any) -> str:
     """
     Convert a list of tokenizer tokens back into normal text using a Hugging Face tokenizer.

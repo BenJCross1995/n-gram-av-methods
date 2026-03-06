@@ -12,7 +12,7 @@ sys.path.insert(0, str(from_root("src")))
 from read_and_write_docs import read_jsonl, read_rds
 from model_loading import load_model
 from utils import apply_temp_doc_id, build_metadata_df
-from n_gram_tracing import common_ngrams
+from n_gram_tracing import common_ngrams, filter_len_common_ngrams
 from n_gram_scoring import score_ngrams_to_df
 from excel_functions import create_excel_template
 
@@ -32,7 +32,8 @@ def parse_args():
     ap.add_argument("--unknown_doc")
     ap.add_argument("--compute_type", default="himem")
     # N-gram
-    ap.add_argument("--ngram_n", type=int, default=2)
+    ap.add_argument("--min_len", type=int, default=None)
+    ap.add_argument("--max_len", type=int, default=None)
     ap.add_argument("--lowercase", action="store_true")
     ap.add_argument("--num_tokens", type=int, default=None)
         
@@ -140,21 +141,22 @@ def main():
     # -----
     
     print("Getting common n-grams")
-    common = common_ngrams(known_text, unknown_text, args.ngram_n, tokenizer, lowercase=args.lowercase)
+    common = common_ngrams(known_text, unknown_text, tokenizer, lowercase=args.lowercase)
+    filtered_common = filter_len_common_ngrams(common, min_len=args.min_len, max_len=args.max_len)
     
-    print(f"There are {len(common)} n-grams in common!")
+    print(f"There are {len(filtered_common)} n-grams in common!")
     
     # Get the no context scores
     print("Scoring the No Context n-grams")
-    no_context_df = score_ngrams_to_df(common, model, tokenizer, full_text=None, use_bos=True)
+    no_context_df = score_ngrams_to_df(filtered_common, model, tokenizer, full_text=None, use_bos=True)
     
     # Get the known scores
     print("Scoring the Known n-grams")
-    known_scored_df = score_ngrams_to_df(common, model, tokenizer, full_text=known_text, use_bos=True, num_tokens=args.num_tokens)
+    known_scored_df = score_ngrams_to_df(filtered_common, model, tokenizer, full_text=known_text, use_bos=True, num_tokens=args.num_tokens)
     
     # Score the unknown phrases
     print("Scoring the Unknown n-grams")
-    unknown_scored_df = score_ngrams_to_df(common, model, tokenizer, full_text=unknown_text, use_bos=True, num_tokens=args.num_tokens)
+    unknown_scored_df = score_ngrams_to_df(filtered_common, model, tokenizer, full_text=unknown_text, use_bos=True, num_tokens=args.num_tokens)
     
     create_excel_template(
         known = known_scored_df,
