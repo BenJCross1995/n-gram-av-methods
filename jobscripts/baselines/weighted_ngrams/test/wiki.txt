@@ -24,38 +24,32 @@ WEIGHT="exp"
 BASE="2.0"
 ALPHA="1.0"
 
-# Input lists produced in step 1:
 KNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_doc_list.txt"
 UNKNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/unknown_doc_list.txt"
 
-# ---- Select the Nth line from each list (N = SLURM_ARRAY_TASK_ID) ----
-# Using awk with a variable for safety; exit after printing to avoid scanning whole file.
 KNOWN_DOC=$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NR==n {print; exit}' "$KNOWN_LIST")
 UNKNOWN_DOC=$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NR==n {print; exit}' "$UNKNOWN_LIST")
 
 KNOWN_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
 UNKNOWN_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
 METADATA_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/metadata.rds"
-SAVE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
-COMPLETED_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
 
-# ---- Select the Nth line from each list (N = SLURM_ARRAY_TASK_ID) ----
-# Using awk with a variable for safety; exit after printing to avoid scanning whole file.
-DOC_NAME=$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NR==n {print; exit}' "$PROBLEM_DOC_LIST")
-DATA_LOC="${DATA_DIR}/${DOC_NAME}.xlsx"
+for WEIGHT in linear power exp; do
+    SAVE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
+    COMPLETED_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
 
-# Run weighted n-gram script
-python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/weighted_ngram_tracing.py \
-    --known_loc "${KNOWN_LOC}" \
-    --unknown_loc "${UNKNOWN_LOC}" \
-    --metadata_loc "${METADATA_LOC}" \
-    --model_loc "${MODEL_LOC}" \
-    --save_loc "${SAVE_LOC}" \
-    --completed_loc "${COMPLETED_LOC}" \
-    --corpus "${CORPUS}" \
-    --data_type "${DATA_TYPE}" \
-    --known_doc "${KNOWN_DOC}" \
-    --unknown_doc "${UNKNOWN_DOC}" \
-    --weight "${WEIGHT}" \
-    --base "${BASE}" \
-    --alpha "${ALPHA}"
+    python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/weighted_ngram_tracing.py \
+        --known_loc "${KNOWN_LOC}" \
+        --unknown_loc "${UNKNOWN_LOC}" \
+        --metadata_loc "${METADATA_LOC}" \
+        --model_loc "${MODEL_LOC}" \
+        --save_loc "${SAVE_LOC}" \
+        --completed_loc "${COMPLETED_LOC}" \
+        --corpus "${CORPUS}" \
+        --data_type "${DATA_TYPE}" \
+        --known_doc "${KNOWN_DOC}" \
+        --unknown_doc "${UNKNOWN_DOC}" \
+        --weight "${WEIGHT}" \
+        --base "${BASE}" \
+        --alpha "${ALPHA}"
+done

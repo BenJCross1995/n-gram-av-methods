@@ -1,8 +1,9 @@
 #!/bin/bash --login
 
-#SBATCH -J stack_t
-#SBATCH -a 1-228
+#SBATCH -J red_t
+#SBATCH -a 1-3600
 #SBATCH -p himem
+#SBATCH -t 7-0
 #SBATCH -t 7-0
 #SBATCH -n 1
 #SBATCH --mem=64G
@@ -16,7 +17,7 @@ module load apps/binapps/anaconda3/2024.10
 conda activate venv
 
 # Define variables
-CORPUS="StackExchange"
+CORPUS="Reddit"
 DATA_TYPE="test"
 MODEL="gpt2"
 MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
