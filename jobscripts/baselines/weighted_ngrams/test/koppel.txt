@@ -1,26 +1,21 @@
 #!/bin/bash --login
 
-#SBATCH -J pvj_t
-#SBATCH -a 1-574
+#SBATCH -J kop_t
+#SBATCH -a 1-5400
 #SBATCH -p himem
 #SBATCH -t 7-0
 #SBATCH -n 1
 #SBATCH --mem=64G
 
-set -e  # optional: stop on error
+set -e
 
-# Load conda module
 module load apps/binapps/anaconda3/2024.10
-
-# Activate the environment
 conda activate venv
 
-# Define variables
-CORPUS="Perverted Justice"
+CORPUS="Koppel's Blogs"
 DATA_TYPE="test"
 MODEL="gpt2"
 MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
-WEIGHT="exp"
 BASE="2.0"
 ALPHA="1.0"
 
