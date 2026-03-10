@@ -1,6 +1,6 @@
 #!/bin/bash --login
 
-#SBATCH -J acl_t_gpt2
+#SBATCH -J acl_t
 #SBATCH -a 1-280
 #SBATCH -p himem
 #SBATCH -t 7-0
@@ -20,7 +20,9 @@ CORPUS="ACL"
 DATA_TYPE="test"
 MODEL="gpt2"
 MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
-COMPUTE_TYPE="himem_64"
+WEIGHT="exp"
+BASE="2.0"
+ALPHA="1.0"
 
 # Input lists produced in step 1:
 KNOWN_LIST="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_doc_list.txt"
@@ -34,16 +36,16 @@ UNKNOWN_DOC=$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NR==n {print; exit}' "$UNKNOWN_LI
 KNOWN_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
 UNKNOWN_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
 METADATA_LOC="/mnt/hum01-home01/d34195bc/av_datasets/${DATA_TYPE}/metadata.rds"
-SAVE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/ngram_masking_logrpobs/${DATA_TYPE}/${CORPUS}/${MODEL}/raw"
-COMPLETED_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/ngram_masking_logprobs/${DATA_TYPE}/${CORPUS}/${MODEL}/raw"
+SAVE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
+COMPLETED_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
 
 # ---- Select the Nth line from each list (N = SLURM_ARRAY_TASK_ID) ----
 # Using awk with a variable for safety; exit after printing to avoid scanning whole file.
 DOC_NAME=$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NR==n {print; exit}' "$PROBLEM_DOC_LIST")
 DATA_LOC="${DATA_DIR}/${DOC_NAME}.xlsx"
 
-# Run top impostors on the Nth file from parascore folder
-python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ngrams_multi.py \
+# Run weighted n-gram script
+python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/weighted_ngram_tracing.py \
     --known_loc "${KNOWN_LOC}" \
     --unknown_loc "${UNKNOWN_LOC}" \
     --metadata_loc "${METADATA_LOC}" \
@@ -54,18 +56,6 @@ python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ng
     --data_type "${DATA_TYPE}" \
     --known_doc "${KNOWN_DOC}" \
     --unknown_doc "${UNKNOWN_DOC}" \
-    --compute_type "${COMPUTE_TYPE}"
-
-# Run top impostors on the Nth file from parascore folder
-python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ngrams.py \
-    --known_loc "${KNOWN_LOC}" \
-    --unknown_loc "${UNKNOWN_LOC}" \
-    --metadata_loc "${METADATA_LOC}" \
-    --model_loc "${MODEL_LOC}" \
-    --save_loc "${SAVE_LOC}" \
-    --completed_loc "${COMPLETED_LOC}" \
-    --corpus "${CORPUS}" \
-    --data_type "${DATA_TYPE}" \
-    --known_doc "${KNOWN_DOC}" \
-    --unknown_doc "${UNKNOWN_DOC}" \
-    --compute_type "${COMPUTE_TYPE}"
+    --weight "${WEIGHT}" \
+    --base "${BASE}" \
+    --alpha "${ALPHA}"
