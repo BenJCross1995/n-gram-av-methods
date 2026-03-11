@@ -29,9 +29,6 @@ def main():
         print(f"Path {args.save_loc} already exists. Exiting.")
         sys.exit()
         
-    # Ensure the directory exists before beginning
-    os.makedirs(args.save_loc, exist_ok=True)
-    
     # Get all of the excel files in the data location
     file_list = list_xlsx_files(args.data_loc)
     
