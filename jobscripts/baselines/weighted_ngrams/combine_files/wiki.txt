@@ -1,0 +1,39 @@
+#!/bin/bash --login
+
+#SBATCH -J wiki_combine
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -e  # optional: stop on error
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# Define variables
+CORPUS="Wiki"
+MODEL="gpt2"
+BASE="2.0"
+ALPHA="1.0"
+
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing"
+
+# Loop thorugh data types
+for DATA_TYPE in test training; do
+
+    # Loop through the weights
+    for WEIGHT in linear power exp; do
+
+            DATA_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
+            SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}_combined_scores_raw.rds"
+
+            python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/weighted_ngram_tracing_combine_files.py \
+                --data_loc "${DATA_LOC}" \
+                --save_loc "${SAVE_LOC}"
+
+    done
+done
