@@ -118,8 +118,8 @@ def score_ngrams(
         "text_len": text_len,
         "log_probs": ngram_log_probs,
         "sum_log_probs": ngram_sum_log_probs,
-        "text_tokens": tokens,
-        "text_log_probs": log_probs,
+        # "text_tokens": tokens,
+        # "text_log_probs": log_probs,
     }
 
 
