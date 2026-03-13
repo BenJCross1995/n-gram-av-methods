@@ -54,8 +54,7 @@ python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ng
     --data_type "${DATA_TYPE}" \
     --known_doc "${KNOWN_DOC}" \
     --unknown_doc "${UNKNOWN_DOC}" \
-    --compute_type "${COMPUTE_TYPE}" \
-    --ngram_n "1"
+    --compute_type "${COMPUTE_TYPE}"
 
 # Run top impostors on the Nth file from parascore folder
 python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ngrams.py \
@@ -69,5 +68,4 @@ python -u /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/score_ng
     --data_type "${DATA_TYPE}" \
     --known_doc "${KNOWN_DOC}" \
     --unknown_doc "${UNKNOWN_DOC}" \
-    --compute_type "${COMPUTE_TYPE}" \
-    --ngram_n "1"
+    --compute_type "${COMPUTE_TYPE}"
