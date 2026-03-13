@@ -80,7 +80,7 @@ def main():
     # Only pass completed_loc if provided
     has_completed = bool(args.completed_loc)
 
-    for nt in FIXED_NUM_TOKENS:
+    for nt in FIXED_NUM_TOKENS_DETAILED:
         save_loc_nt = with_suffix_dir(args.save_loc, nt)
         completed_loc_nt = with_suffix_dir(args.completed_loc, nt) if has_completed else None
 
