@@ -69,11 +69,15 @@ def main():
         "--data_type", args.data_type,
         "--known_doc", args.known_doc,
         "--unknown_doc", args.unknown_doc,
-        "--min_len", str(args.min_len),
-        "--max_len", str(args.max_len),
         "--compute_type", args.compute_type,
     ]
 
+    if args.min_len is not None:
+        base_cmd += ["--min_len", str(args.min_len)]
+
+    if args.max_len is not None:
+        base_cmd += ["--max_len", str(args.max_len)]
+        
     if args.lowercase:
         base_cmd.append("--lowercase")
 
