@@ -2,33 +2,53 @@ import pandas as pd
 
 from pathlib import Path
 
-def create_per_occurrence_table(known, unknown, no_context):
-    """Create a base score summary table for the data"""
+def create_per_occurrence_table(known=None, unknown=None, no_context=None):
+    """Create a base score summary table for the data.
     
-    # Get the base LLR table
+    known and unknown are optional, but at least one of them must be provided.
+    no_context is also optional.
+    """
+    
     cols = ['phrase_num', 'phrase_occurrence', 'phrase', 'tokens', 'num_tokens']
     key_cols = ['phrase_num', 'phrase_occurrence', 'phrase']
+    join_cols = ['phrase_num', 'phrase_occurrence']
+    keep_cols = ['sum_log_probs']
+
+    # Build base table from whichever of known/unknown are provided
+    base_parts = []
+    if known is not None:
+        base_parts.append(known[cols])
+    if unknown is not None:
+        base_parts.append(unknown[cols])
+
+    if not base_parts:
+        raise ValueError("At least one of known or unknown must be provided.")
+
     base_score_table = (
-        pd.concat([known[cols], unknown[cols]], ignore_index=True)
+        pd.concat(base_parts, ignore_index=True)
         .drop_duplicates(subset=key_cols, keep='first')
         .sort_values(key_cols, ascending=[True, True, True])
         .reset_index(drop=True)
     )
     
-    # ---- Add: bring in logprob cols from known + unknown with prefixes ----
-    join_cols = ['phrase_num', 'phrase_occurrence']
-    keep_cols = ['sum_log_probs']
+    # Merge optional score columns
+    if no_context is not None:
+        no_context_small = no_context[['phrase_num'] + keep_cols].rename(
+            columns={c: f"no_context_{c}" for c in keep_cols}
+        )
+        base_score_table = base_score_table.merge(no_context_small, on='phrase_num', how='left')
 
-    known_small = known[join_cols + keep_cols].rename(columns={c: f"known_{c}" for c in keep_cols})
-    unknown_small = unknown[join_cols + keep_cols].rename(columns={c: f"unknown_{c}" for c in keep_cols})
-    no_context_small = no_context[['phrase_num'] + keep_cols].rename(columns={c: f"no_context_{c}" for c in keep_cols})
+    if known is not None:
+        known_small = known[join_cols + keep_cols].rename(
+            columns={c: f"known_{c}" for c in keep_cols}
+        )
+        base_score_table = base_score_table.merge(known_small, on=join_cols, how='left')
 
-    base_score_table = (
-        base_score_table
-        .merge(no_context_small, on='phrase_num', how='left')
-        .merge(known_small, on=join_cols, how='left')
-        .merge(unknown_small, on=join_cols, how='left')
-    )
+    if unknown is not None:
+        unknown_small = unknown[join_cols + keep_cols].rename(
+            columns={c: f"unknown_{c}" for c in keep_cols}
+        )
+        base_score_table = base_score_table.merge(unknown_small, on=join_cols, how='left')
 
     return base_score_table
 
@@ -118,18 +138,23 @@ def create_final_metadata(metadata: pd.DataFrame, score_by_token_num: pd.DataFra
     return pd.concat([meta_rep, score_rep.reset_index(drop=True)], axis=1)
 
 def create_excel_template(
-    known: pd.DataFrame,
-    unknown: pd.DataFrame,
-    no_context: pd.DataFrame,
-    metadata: pd.DataFrame,
-    docs: pd.DataFrame,
+    known: pd.DataFrame | None = None,
+    unknown: pd.DataFrame | None = None,
+    no_context: pd.DataFrame | None = None,
+    metadata: pd.DataFrame | None = None,
+    docs: pd.DataFrame | None = None,
     path: str | Path = "template.xlsx",
 ) -> None:
     """
     Writes all sheets, builds a distinct phrases 'LLR' table, adds include_phrase lookups
     to Known & Unknown, and then adds your LLR formulas (D..H).
+
+    known and unknown are optional, but at least one must be provided.
     """
     path = Path(path)
+
+    if known is None and unknown is None:
+        raise ValueError("At least one of known or unknown must be provided.")
 
     # Create base scoring table of scores per phrase and occurrence
     per_occurrence_df = create_per_occurrence_table(known, unknown, no_context)
@@ -141,20 +166,29 @@ def create_excel_template(
     summary_by_num_tokens_df = create_summary_by_token_num(per_phrase_df)
     
     # Now create the final metadata table which is a replication of metadata with token level scores
-    final_metadata = create_final_metadata(metadata, summary_by_num_tokens_df)
+    final_metadata = (
+        create_final_metadata(metadata, summary_by_num_tokens_df)
+        if metadata is not None
+        else summary_by_num_tokens_df.copy()
+    )
     
     # Choose writer mode safely
     writer_mode = "a" if path.exists() else "w"
     writer_kwargs = {"engine": "openpyxl", "mode": writer_mode}
     if writer_mode == "a":
-        writer_kwargs["if_sheet_exists"] = "replace"  # only valid in append mode
+        writer_kwargs["if_sheet_exists"] = "replace"
         
     with pd.ExcelWriter(path, **writer_kwargs) as writer:
-        # Write sheets
-        docs.to_excel(writer, index=False, sheet_name="docs")
-        known.to_excel(writer, index=False, sheet_name="known")
-        unknown.to_excel(writer, index=False, sheet_name="unknown")
-        no_context.to_excel(writer, index=False, sheet_name="no context")
+        # Write sheets only when provided / available
+        if docs is not None:
+            docs.to_excel(writer, index=False, sheet_name="docs")
+        if known is not None:
+            known.to_excel(writer, index=False, sheet_name="known")
+        if unknown is not None:
+            unknown.to_excel(writer, index=False, sheet_name="unknown")
+        if no_context is not None:
+            no_context.to_excel(writer, index=False, sheet_name="no context")
+
         per_occurrence_df.to_excel(writer, index=False, sheet_name="phrase occurrence score")
         per_phrase_df.to_excel(writer, index=False, sheet_name="phrase score")
         summary_by_num_tokens_df.to_excel(writer, index=False, sheet_name="score by tokens")

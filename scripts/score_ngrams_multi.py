@@ -26,10 +26,11 @@ def parse_args():
     ap.add_argument("--completed_loc", default=None)
 
     # Dataset hinting
-    ap.add_argument("--corpus", default="Wiki")
-    ap.add_argument("--data_type", default="training")
-    ap.add_argument("--known_doc")
-    ap.add_argument("--unknown_doc")
+    ap.add_argument("--corpus", type=str, default="Wiki")
+    ap.add_argument("--data_type", type=str, default="training")
+    ap.add_argument("--known_doc", type=str, default=None)
+    ap.add_argument("--unknown_doc", type=str, default=None)
+    ap.add_argument("--problem", type=str, default=None)
     ap.add_argument("--compute_type", default="himem")
 
     # N-gram
@@ -39,6 +40,9 @@ def parse_args():
 
     # Keep for "same args" compatibility; ignored here (we override per loop)
     ap.add_argument("--num_tokens", type=int, default=None)
+    
+    # Script Choice
+    ap.add_argument("--score_script", type=str, default="score_ngrams")
 
     return ap.parse_args()
 
@@ -53,7 +57,7 @@ def main():
 
     # score_ngrams.py is in the same directory as this wrapper
     this_dir = Path(__file__).resolve().parent
-    target_script = this_dir / "score_ngrams.py"
+    target_script = this_dir / f"{args.score_script}.py"
 
     if not target_script.exists():
         raise FileNotFoundError(f"Could not find {target_script}")
@@ -67,11 +71,16 @@ def main():
         "--model_loc", args.model_loc,
         "--corpus", args.corpus,
         "--data_type", args.data_type,
-        "--known_doc", args.known_doc,
-        "--unknown_doc", args.unknown_doc,
-        "--compute_type", args.compute_type,
     ]
+    
+    if args.score_script == "score_ngrams":
+        base_cmd += ["--known_doc", str(args.known_doc)]
+        base_cmd += ["--unknown_doc", str(args.unknown_doc)]
+        base_cmd += ["--compute_type", str(args.compute_type)]
 
+    if args.score_script == "score_ngrams_concat":
+        base_cmd += ["--problem", str(args.problem)]
+        
     if args.min_len is not None:
         base_cmd += ["--min_len", str(args.min_len)]
 

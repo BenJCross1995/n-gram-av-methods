@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import sys
+
+import pandas as pd
+
+from from_root import from_root
+
+sys.path.insert(0, str(from_root("src")))
+
+from read_and_write_docs import read_jsonl, read_rds
+from model_loading import load_model
+from utils import apply_temp_doc_id, build_metadata_df
+from n_gram_tracing import common_ngrams, filter_len_common_ngrams
+from n_gram_scoring import score_ngrams_to_df
+from excel_functions import create_excel_template
+
+def parse_args():
+    ap = argparse.ArgumentParser(description="Pipeline to score the raw data")
+    # Paths
+    ap.add_argument("--known_loc")
+    ap.add_argument("--unknown_loc")
+    ap.add_argument("--metadata_loc")
+    ap.add_argument("--model_loc")
+    ap.add_argument("--save_loc")
+    ap.add_argument("--completed_loc", default=None)
+    # Dataset hinting
+    ap.add_argument("--corpus", default="Wiki")
+    ap.add_argument("--data_type", default="training")
+    ap.add_argument("--problem")
+    # N-gram
+    ap.add_argument("--min_len", type=int, default=None)
+    ap.add_argument("--max_len", type=int, default=None)
+    ap.add_argument("--lowercase", action="store_true")
+    ap.add_argument("--num_tokens", type=int, default=None)
+        
+    return ap.parse_args()
+
+def main():
+    
+    args=parse_args()
+    
+    # Ensure the directory exists before beginning
+    os.makedirs(args.save_loc, exist_ok=True)
+    
+    # -----
+    # LOAD DATA & LOCAL MODEL
+    # -----
+    save_loc = f"{args.save_loc}/{args.problem}.xlsx"
+    
+    if args.completed_loc:
+        completed_loc = f"{args.completed_loc}/{args.problem}.xlsx"
+        if os.path.exists(completed_loc):
+            print(f"Result for {args.problem} already exists in the completed folder. Exiting.")
+            sys.exit()
+    
+    # Skip the problem if already exists
+    if os.path.exists(save_loc):
+        print(f"Path {save_loc} already exists. Exiting.")
+        sys.exit()
+        
+    print(f"Working on problem: {args.problem}")
+    
+    print("Loading model")
+    tokenizer, model = load_model(args.model_loc)
+    # special_tokens = distinct_special_chars(tokenizer=tokenizer)
+    model_name = os.path.basename(os.path.normpath(args.model_loc))
+    
+    print("Loading data")
+    known = read_jsonl(args.known_loc)
+    known = apply_temp_doc_id(known)
+    
+    unknown = read_jsonl(args.unknown_loc)
+    unknown = apply_temp_doc_id(unknown)
+    
+    print("Data loaded")
+    
+    # NOTE - Is this used?
+    metadata = read_rds(args.metadata_loc)
+    filtered_metadata = metadata[
+        (metadata['corpus'] == args.corpus)
+        & (metadata['problem'] == args.problem)
+    ]
+    agg_metadata = build_metadata_df(filtered_metadata, known, unknown)
+    
+    # -----
+    # Get the chosen text & metadata
+    # -----
+    
+    known_author = filtered_metadata['known_author'].iloc[0]
+    unknown_author = filtered_metadata['unknown_author'].iloc[0]
+    
+    selected_known = known[known['author'] == known_author]
+    selected_unknown = unknown[unknown['author'] == unknown_author]
+
+    unknown_doc = selected_unknown['doc_id'].iloc[0]
+    unknown_text = selected_unknown['text'].iloc[0]
+
+    num_known_problems = len(selected_known)
+    print(f"There are {num_known_problems} known texts in the problem")
+    
+    # -----
+    # Get the common n-grams between the unknown and known texts
+    # -----
+    
+    ngram_list = []
+    problem_metadata_list = []
+
+    print("Getting common n-grams")
+    for i in range(1, num_known_problems + 1):
+        print(f"Working on doc {i}")
+        known_doc = selected_known['doc_id'].iloc[i-1]
+        known_text = selected_known['text'].iloc[i - 1]
+        
+        # Perform a try/except to try to find common n-grams
+        # Leave a flag if unable to find them
+        try:
+            common = common_ngrams(
+                text1=known_text,
+                text2=unknown_text,
+                tokenizer=tokenizer,
+                include_subgrams=False,
+                lowercase=True
+            )
+            ngrams_found = True
+        except:
+            common = []
+            ngrams_found = False
+        ngrams_shared = len(common)
+        ngram_list.extend(common)
+        
+        row = {
+            "data_type": args.data_type,
+            "corpus": args.corpus,
+            "scoring_model": model_name,
+            "max_context_tokens": args.num_tokens,
+            "problem": args.problem,
+            "known_author": known_author,
+            "unknown_author": unknown_author,
+            "target": known_author == unknown_author,
+            "known_doc": known_doc,
+            "unknown_doc": unknown_doc,
+            "ngrams_found": ngrams_found,
+            "num_ngrams": ngrams_shared,
+        }
+        problem_metadata_list.append(row)
+        
+    problem_metadata = pd.DataFrame(problem_metadata_list)
+    # Only keep the distinct list
+    distinct_ngram_list = [list(x) for x in dict.fromkeys(tuple(x) for x in ngram_list)]
+
+    # Sort first by the number of tokens and second by character length
+    distinct_ngram_list = sorted(
+        distinct_ngram_list,
+        key=lambda x: (len(x), sum(len(str(token)) for token in x))
+    )
+
+    # Filter by token length if desired
+    filtered_ngrams = filter_len_common_ngrams(
+        distinct_ngram_list,
+        min_len=args.min_len,
+        max_len=args.max_len
+    )
+    print(f"There are {len(filtered_ngrams)} n-grams in common!")
+    
+    overall_problem_metadata = (
+        problem_metadata[['data_type', 'corpus', 'scoring_model', 'max_context_tokens',
+                          'problem', 'known_author', 'unknown_author', 'target']]
+        .drop_duplicates()
+    )
+    overall_problem_metadata['num_problems'] = len(problem_metadata)
+    overall_problem_metadata['ngrams_found'] = sum(problem_metadata['ngrams_found'])
+    overall_problem_metadata['completed'] = overall_problem_metadata['num_problems'] == overall_problem_metadata['ngrams_found']
+    
+    # Get the no context scores
+    print("Scoring the No Context n-grams")
+    no_context_df = score_ngrams_to_df(filtered_ngrams, model, tokenizer, full_text=None, use_bos=True)
+    
+    # Score the unknown phrases
+    print("Scoring the Unknown n-grams")
+    unknown_scored_df = score_ngrams_to_df(filtered_ngrams, model, tokenizer, full_text=unknown_text, use_bos=True, num_tokens=args.num_tokens)
+    
+    create_excel_template(
+        unknown = unknown_scored_df,
+        no_context = no_context_df,
+        metadata = overall_problem_metadata,
+        path = save_loc
+    )
+        
+if __name__ == "__main__":
+    main()
