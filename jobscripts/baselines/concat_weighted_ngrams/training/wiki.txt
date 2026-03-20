@@ -1,7 +1,7 @@
 #!/bin/bash --login
 
-#SBATCH -J wiki_c_t
-#SBATCH -a 1-224
+#SBATCH -J wiki_c_tr
+#SBATCH -a 1-150
 #SBATCH -p himem
 #SBATCH -t 7-0
 #SBATCH -n 1
@@ -17,7 +17,7 @@ conda activate venv
 
 # Define variables
 CORPUS="Wiki"
-DATA_TYPE="test"
+DATA_TYPE="training"
 MODEL="gpt2"
 MODEL_LOC="/mnt/hum01-home01/d34195bc/models/${MODEL}"
 BASE="2.0"
