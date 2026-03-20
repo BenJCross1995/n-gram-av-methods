@@ -36,7 +36,9 @@ def parse_args():
     # N-gram
     ap.add_argument("--min_len", type=int, default=None)
     ap.add_argument("--max_len", type=int, default=None)
-    ap.add_argument("--lowercase", action="store_true")
+    ap.add_argument("--lowercase", dest="lowercase", action="store_true")
+    ap.add_argument("--no-lowercase", dest="lowercase", action="store_false")
+    ap.set_defaults(lowercase=True)
 
     # Keep for "same args" compatibility; ignored here (we override per loop)
     ap.add_argument("--num_tokens", type=int, default=None)

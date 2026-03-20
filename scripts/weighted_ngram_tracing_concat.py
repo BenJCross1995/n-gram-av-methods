@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
-import os
 import sys
+import os
 
 import pandas as pd
 
@@ -9,15 +9,24 @@ from from_root import from_root
 
 sys.path.insert(0, str(from_root("src")))
 
-from read_and_write_docs import read_jsonl, read_rds
 from model_loading import load_model
+from read_and_write_docs import read_jsonl, read_rds
 from utils import apply_temp_doc_id, build_metadata_df
-from n_gram_tracing import common_ngrams, filter_len_common_ngrams
-from n_gram_scoring import score_ngrams_to_df
-from excel_functions import create_excel_template
+from n_gram_tracing import (
+    tokenize_to_tokens,
+    common_ngrams,
+    filter_len_common_ngrams
+)
+from weighted_n_gram_tracing import (
+    get_tokens,
+    weighted_ngram_tracing_df,
+    aggregate_weighted_df,
+    create_excel_template,
+    create_ngram_df
+)
 
 def parse_args():
-    ap = argparse.ArgumentParser(description="Pipeline to score the raw data")
+    ap = argparse.ArgumentParser(description="Pipeline to complete weighted n-gram tracing")
     # Paths
     ap.add_argument("--known_loc")
     ap.add_argument("--unknown_loc")
@@ -35,8 +44,11 @@ def parse_args():
     ap.add_argument("--lowercase", dest="lowercase", action="store_true")
     ap.add_argument("--no-lowercase", dest="lowercase", action="store_false")
     ap.set_defaults(lowercase=True)
-    ap.add_argument("--num_tokens", type=int, default=None)
-        
+    # Weighting
+    ap.add_argument("--weight", type=str, choices=["linear", "power", "exp"], default="linear")
+    ap.add_argument("--alpha", type=float, default=1.0, help="Only used when --weight=power (w(n)=n**alpha).")
+    ap.add_argument("--base", type=float, default=2.0, help="Only used when --weight=exp (w(n)=base**n).")
+    
     return ap.parse_args()
 
 def main():
@@ -65,10 +77,9 @@ def main():
     print(f"Working on problem: {args.problem}")
     
     print("Loading model")
-    tokenizer, model = load_model(args.model_loc)
-    # special_tokens = distinct_special_chars(tokenizer=tokenizer)
+    tokenizer = load_model(args.model_loc, load_model=False)
     model_name = os.path.basename(os.path.normpath(args.model_loc))
-    
+        
     print("Loading data")
     known = read_jsonl(args.known_loc)
     known = apply_temp_doc_id(known)
@@ -84,7 +95,7 @@ def main():
         (metadata['corpus'] == args.corpus)
         & (metadata['problem'] == args.problem)
     ]
-    agg_metadata = build_metadata_df(filtered_metadata, known, unknown)
+    # agg_metadata = build_metadata_df(filtered_metadata, known, unknown)
     
     # -----
     # Get the chosen text & metadata
@@ -98,7 +109,8 @@ def main():
 
     unknown_doc = selected_unknown['doc_id'].iloc[0]
     unknown_text = selected_unknown['text'].iloc[0]
-
+    unknown_tokens = tokenize_to_tokens(unknown_text, tokenizer=tokenizer, lowercase=args.lowercase)
+    
     num_known_problems = len(selected_known)
     print(f"There are {num_known_problems} known texts in the problem")
     
@@ -106,6 +118,7 @@ def main():
     # Get the common n-grams between the unknown and known texts
     # -----
     
+    known_tokens_list = []
     ngram_list = []
     problem_metadata_list = []
 
@@ -114,6 +127,8 @@ def main():
         print(f"Working on doc {i}")
         known_doc = selected_known['doc_id'].iloc[i-1]
         known_text = selected_known['text'].iloc[i - 1]
+        known_tokens = tokenize_to_tokens(known_text, tokenizer=tokenizer, lowercase=args.lowercase)
+        known_tokens_list.append(known_tokens)
         
         # Perform a try/except to try to find common n-grams
         # Leave a flag if unable to find them
@@ -131,12 +146,11 @@ def main():
             ngrams_found = False
         ngrams_shared = len(common)
         ngram_list.extend(common)
-        
+    
         row = {
             "data_type": args.data_type,
             "corpus": args.corpus,
             "scoring_model": model_name,
-            "max_context_tokens": args.num_tokens,
             "problem": args.problem,
             "known_author": known_author,
             "unknown_author": unknown_author,
@@ -147,7 +161,7 @@ def main():
             "num_ngrams": ngrams_shared,
         }
         problem_metadata_list.append(row)
-        
+
     problem_metadata = pd.DataFrame(problem_metadata_list)
     # Only keep the distinct list
     distinct_ngram_list = [list(x) for x in dict.fromkeys(tuple(x) for x in ngram_list)]
@@ -157,7 +171,7 @@ def main():
         distinct_ngram_list,
         key=lambda x: (len(x), sum(len(str(token)) for token in x))
     )
-
+    
     # Filter by token length if desired
     filtered_ngrams = filter_len_common_ngrams(
         distinct_ngram_list,
@@ -166,8 +180,11 @@ def main():
     )
     print(f"There are {len(filtered_ngrams)} n-grams in common!")
     
+    # Crete an ngram table
+    ngram_df = create_ngram_df(filtered_ngrams)
+    
     overall_problem_metadata = (
-        problem_metadata[['data_type', 'corpus', 'scoring_model', 'max_context_tokens',
+        problem_metadata[['data_type', 'corpus', 'scoring_model', 
                           'problem', 'known_author', 'unknown_author', 'target']]
         .drop_duplicates()
     )
@@ -175,20 +192,42 @@ def main():
     overall_problem_metadata['ngrams_found'] = sum(problem_metadata['ngrams_found'])
     overall_problem_metadata['completed'] = overall_problem_metadata['num_problems'] == overall_problem_metadata['ngrams_found']
     
-    # Get the no context scores
-    print("Scoring the No Context n-grams")
-    no_context_df = score_ngrams_to_df(filtered_ngrams, model, tokenizer, full_text=None, use_bos=True)
+    # -----
+    # Get Weighting
+    # -----
     
-    # Score the unknown phrases
-    print("Scoring the Unknown n-grams")
-    unknown_scored_df = score_ngrams_to_df(filtered_ngrams, model, tokenizer, full_text=unknown_text, use_bos=True, num_tokens=args.num_tokens)
-    
-    create_excel_template(
-        unknown = unknown_scored_df,
-        no_context = no_context_df,
-        metadata = overall_problem_metadata,
-        path = save_loc
+    print("Applying the weighted n-gram tracing")
+    weighted_df = weighted_ngram_tracing_df(
+        known_tokens_list=known_tokens_list,
+        unknown_tokens=unknown_tokens,
+        common_n_grams=filtered_ngrams,
+        weight=args.weight,
+        alpha=args.alpha,          # used only if weight="power": w(n)=n**alpha
+        base=args.base,           # used only if weight="exp":   w(n)=base**n
+        decimals = 5,
+        validate_common = True,
     )
-        
+    
+    print("Aggregating the results by token level")
+    agg_weighted_df = aggregate_weighted_df(
+        df=weighted_df,
+        problem_metadata=overall_problem_metadata,
+        level_col="token_level",
+        weight=args.weight,
+        alpha=args.alpha,
+        base=args.base
+    )
+    # -----
+    # Create document dataframe
+    # -----
+    
+    print("Saving")
+    create_excel_template(
+        weighted_df=weighted_df,
+        agg_weighted_df=agg_weighted_df,
+        ngrams=ngram_df,
+        path=save_loc
+    )
+    
 if __name__ == "__main__":
     main()

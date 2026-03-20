@@ -34,7 +34,9 @@ def parse_args():
     # N-gram
     ap.add_argument("--min_len", type=int, default=None)
     ap.add_argument("--max_len", type=int, default=None)
-    ap.add_argument("--lowercase", action="store_true")
+    ap.add_argument("--lowercase", dest="lowercase", action="store_true")
+    ap.add_argument("--no-lowercase", dest="lowercase", action="store_false")
+    ap.set_defaults(lowercase=True)
     ap.add_argument("--num_tokens", type=int, default=None)
         
     return ap.parse_args()
@@ -88,8 +90,12 @@ def main():
     # Get the chosen text & metadata
     # -----
     
-    known_text = known[known['doc_id'] == args.known_doc].reset_index().loc[0, 'text'].lower()
-    unknown_text = unknown[unknown['doc_id'] == args.unknown_doc].reset_index().loc[0, 'text'].lower()
+    known_text = known[known['doc_id'] == args.known_doc].reset_index().loc[0, 'text']
+    unknown_text = unknown[unknown['doc_id'] == args.unknown_doc].reset_index().loc[0, 'text']
+    
+    if args.lowercase:
+        known_text = known_text.lower()
+        unknown_text = unknown_text.lower()
     
     problem_metadata = agg_metadata[(agg_metadata['known_doc_id'] == args.known_doc)
                                     & (agg_metadata['unknown_doc_id'] == args.unknown_doc)].reset_index()

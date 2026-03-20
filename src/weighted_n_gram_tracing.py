@@ -119,6 +119,79 @@ def weighted_ngram_tracing_df(
 
     return pd.DataFrame(rows)
 
+def weighted_ngram_tracing_df(
+    *,
+    known_tokens_list: list[Sequence[Token]],
+    unknown_tokens: Sequence[Token],
+    common_n_grams: Iterable[Sequence[Token]],
+    weight: Literal["linear", "power", "exp"] = "linear",
+    alpha: float = 1.0,
+    base: float = 2.0,
+    decimals: int = 3,
+    validate_common: bool = True,
+) -> pd.DataFrame:
+    """
+    Per-n table using MULTIPLE known documents.
+
+    known_ngrams_distinct is the union of distinct n-grams across all known docs.
+    """
+    common_by_n: Dict[int, set[Ngram]] = defaultdict(set)
+    for ng in common_n_grams:
+        t = tuple(ng)
+        if len(t) > 0:
+            common_by_n[len(t)].add(t)
+
+    rows: List[dict] = []
+
+    for n in sorted(common_by_n):
+        # Union of known n-grams across all known docs
+        K = set()
+        for known_tokens in known_tokens_list:
+            K |= _distinct_ngrams(known_tokens, n)
+
+        Q = _distinct_ngrams(unknown_tokens, n)
+
+        overlap_set = set(common_by_n[n])
+
+        if validate_common:
+            overlap_set &= (K & Q)
+
+        a = len(overlap_set)
+        known_cnt = len(K)
+        unknown_cnt = len(Q)
+        union_cnt = known_cnt + unknown_cnt - a
+
+        simpson = 0.0 if unknown_cnt == 0 else a / unknown_cnt
+        jaccard = 0.0 if union_cnt == 0 else a / union_cnt
+
+        weight_l = weight.lower().strip()
+        if weight_l == "linear":
+            w = float(n)
+        elif weight_l == "power":
+            w = float(n) ** float(alpha)
+        elif weight_l == "exp":
+            w = float(base) ** float(n)
+        else:
+            raise ValueError("weight must be 'linear', 'power', or 'exp'.")
+
+        rows.append(
+            {
+                "token_level": n,
+                "known_ngrams_distinct": len(K),
+                "unknown_ngrams_distinct": unknown_cnt,
+                "overlap_ngrams_distinct": a,
+                "union_ngrams_distinct": union_cnt,
+                "simpson": round(simpson, decimals),
+                "jaccard": round(jaccard, decimals),
+                "weight_w": w,
+                "num_w": w * a,
+                "den_simpson_w": w * unknown_cnt,
+                "den_jaccard_w": w * union_cnt,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
 def aggregate_ge(df: pd.DataFrame, t: int, coef: str = "simpson") -> float:
     sub = df[df["token_level"] >= t]
     if sub.empty:
@@ -181,7 +254,8 @@ def aggregate_weighted_df(
 def create_excel_template(
     weighted_df: pd.DataFrame,
     agg_weighted_df: pd.DataFrame,
-    docs: pd.DataFrame,
+    docs: pd.DataFrame = None,
+    ngrams: pd.DataFrame = None,
     path: str | Path = "template.xlsx",
 ) -> None:
     """
@@ -197,7 +271,22 @@ def create_excel_template(
         writer_kwargs["if_sheet_exists"] = "replace"  # only valid in append mode
         
     with pd.ExcelWriter(path, **writer_kwargs) as writer:
-        # Write sheets
-        docs.to_excel(writer, index=False, sheet_name="docs")
+        # Write sheets only when provided / available
+        if docs is not None:
+            docs.to_excel(writer, index=False, sheet_name="docs")
+        if ngrams is not None:
+            ngrams.to_excel(writer, index=False, sheet_name="ngrams")
         weighted_df.to_excel(writer, index=False, sheet_name="weighted raw")
         agg_weighted_df.to_excel(writer, index=False, sheet_name="metadata")
+        
+def create_ngram_df(ngram_list):
+    
+    ngram_df = pd.DataFrame({
+        "n_gram": ngram_list
+    })
+
+    ngram_df.insert(0, "id", range(1, len(ngram_df) + 1))
+    ngram_df.insert(2, "num_tokens", ngram_df["n_gram"].apply(len))
+    ngram_df["num_chars"] = ngram_df["n_gram"].apply(lambda x: sum(len(str(item)) for item in x))
+    
+    return ngram_df
