@@ -1,0 +1,27 @@
+#!/bin/bash --login
+
+set -e
+
+# -----------------------------
+# User-defined settings
+# -----------------------------
+COMBINE_SCRIPT="/mnt/hum01-home01/d34195bc/n-gram-av-methods/jobs/combine_files.txt"
+ADJUST_SCRIPT="/mnt/hum01-home01/d34195bc/n-gram-av-methods/jobs/adjust_token_size_and_like_for_like.txt"
+
+# -----------------------------
+# Submit combine job first
+# -----------------------------
+COMBINE_JOB_ID=$(sbatch --parsable "${COMBINE_SCRIPT}")
+echo "Combine job submitted:"
+echo "  SCRIPT=${COMBINE_SCRIPT}"
+echo "  JOB_ID=${COMBINE_JOB_ID}"
+
+# -----------------------------
+# Submit adjusted/like-for-like job
+# only after combine succeeds
+# -----------------------------
+ADJUST_JOB_ID=$(sbatch --parsable --dependency=afterok:${COMBINE_JOB_ID} "${ADJUST_SCRIPT}")
+echo "Adjusted/like-for-like job submitted:"
+echo "  SCRIPT=${ADJUST_SCRIPT}"
+echo "  JOB_ID=${ADJUST_JOB_ID}"
+echo "  DEPENDS_ON=${COMBINE_JOB_ID}"

@@ -1,0 +1,68 @@
+#!/bin/bash --login
+
+#SBATCH -J adj_like
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -e
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate environment
+conda activate venv
+
+# -----------------------------
+# User-defined settings
+# -----------------------------
+SCRIPT_LOC="/mnt/hum01-home01/d34195bc/n-gram-av-methods/scripts/get_completed_like_for_like_score.py"
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
+
+# -----------------------------
+# Run separately for each data type
+# -----------------------------
+for DATA_TYPE in test training; do
+
+    INPUT_LOC="${BASE_LOC}/${DATA_TYPE}/combined_scores_raw.rds"
+    ADJUSTED_SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/completed_adj_token_size_raw.rds"
+    LIKE_SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/completed_like_for_like_raw.rds"
+
+    echo "Running for:"
+    echo "  DATA_TYPE=${DATA_TYPE}"
+    echo "  INPUT_LOC=${INPUT_LOC}"
+
+    python -u "${SCRIPT_LOC}" \
+      --input_loc "${INPUT_LOC}" \
+      --adjusted_save_loc "${ADJUSTED_SAVE_LOC}" \
+      --like_save_loc "${LIKE_SAVE_LOC}" \
+      --id_col problem \
+      --token_col min_token_size \
+      --group_cols data_type corpus scoring_model min_token_size weight alpha base \
+      --adjust_base_cols data_type corpus scoring_model weight alpha base \
+      --like_base_cols data_type corpus scoring_model min_token_size \
+      --like_compare_cols weight alpha base
+
+done
+
+# -----------------------------
+# Run once for overall combined file
+# -----------------------------
+INPUT_LOC="${BASE_LOC}/combined_scores_raw.rds"
+ADJUSTED_SAVE_LOC="${BASE_LOC}/completed_adj_token_size_raw.rds"
+LIKE_SAVE_LOC="${BASE_LOC}/completed_like_for_like_raw.rds"
+
+echo "Running overall combined file:"
+echo "  INPUT_LOC=${INPUT_LOC}"
+
+python -u "${SCRIPT_LOC}" \
+  --input_loc "${INPUT_LOC}" \
+  --adjusted_save_loc "${ADJUSTED_SAVE_LOC}" \
+  --like_save_loc "${LIKE_SAVE_LOC}" \
+  --id_col problem \
+  --token_col min_token_size \
+  --group_cols data_type corpus scoring_model min_token_size weight alpha base \
+  --adjust_base_cols data_type corpus scoring_model weight alpha base \
+  --like_base_cols data_type corpus scoring_model min_token_size \
+  --like_compare_cols weight alpha base
