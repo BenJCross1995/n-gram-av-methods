@@ -60,6 +60,8 @@ OVERWRITE_STEP2=false
 OVERWRITE_STEP3=true
 # STEP 4: combine corpus-level RDS files to data_type-level
 OVERWRITE_STEP4=true
+# STEP 5: combine test + training to overall file
+OVERWRITE_STEP5=true
 
 ############################################
 # STEP 1: combine xlsx files within weight folders
@@ -184,3 +186,27 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     "${CMD[@]}"
 
 done
+
+############################################
+# STEP 5: combine test + training to overall file
+############################################
+SAVE_LOC="${BASE_LOC}/combined_scores_raw.rds"
+
+INPUT_FILES=(
+    "${BASE_LOC}/test/combined_scores_raw.rds"
+    "${BASE_LOC}/training/combined_scores_raw.rds"
+)
+
+CMD=(
+    python -u "${SCRIPT_LOC}"
+    --mode combine_rds
+    --combine_level overall
+    --save_loc "${SAVE_LOC}"
+    --input_files "${INPUT_FILES[@]}"
+)
+
+if [ "${OVERWRITE_STEP5}" = true ]; then
+    CMD+=(--overwrite)
+fi
+
+"${CMD[@]}"
