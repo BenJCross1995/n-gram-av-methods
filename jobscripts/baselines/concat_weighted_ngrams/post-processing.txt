@@ -1,12 +1,18 @@
 #!/bin/bash --login
 
+#SBATCH -J post-processing
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
 set -e
 
 # -----------------------------
 # User-defined settings
 # -----------------------------
-COMBINE_SCRIPT="/mnt/hum01-home01/d34195bc/n-gram-av-methods/jobs/combine_files.txt"
-ADJUST_SCRIPT="/mnt/hum01-home01/d34195bc/n-gram-av-methods/jobs/adjust_token_size_and_like_for_like.txt"
+COMBINE_SCRIPT="/mnt/hum01-home01/d34195bc/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/combine_files.txt"
+ADJUST_SCRIPT="/mnt/hum01-home01/d34195bc/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/adjust_token_size_and_like_for_like.txt"
 
 # -----------------------------
 # Submit combine job first
