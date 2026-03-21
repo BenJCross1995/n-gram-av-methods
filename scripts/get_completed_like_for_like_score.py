@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 
+import numpy as np
 import pandas as pd
 
 from from_root import from_root
@@ -108,9 +109,9 @@ def like_for_like(df, base_cols, compare_cols, id_col="problem"):
     # Filter original rows down to only the retained IDs
     out = work.merge(keep, on=base_cols + [id_col], how="inner")
 
-    # Restore missing values
+    # Put missing values back
     for col in all_group_cols:
-        out[col] = out[col].replace("__MISSING__", pd.NA)
+        out[col] = out[col].replace("__MISSING__", np.nan)
 
     return out
 
