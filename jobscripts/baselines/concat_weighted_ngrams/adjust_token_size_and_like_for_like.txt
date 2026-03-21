@@ -17,7 +17,7 @@ conda activate venv
 # -----------------------------
 # User-defined settings
 # -----------------------------
-SCRIPT_LOC="/mnt/hum01-home01/d34195bc/n-gram-av-methods/scripts/get_completed_like_for_like_score.py"
+SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/get_completed_like_for_like_score.py"
 BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
 
 # -----------------------------
