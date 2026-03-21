@@ -1,0 +1,70 @@
+#!/bin/bash --login
+
+#SBATCH -J combine_scores
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -e  # stop on real errors
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# Define variables
+MODEL="gpt2"
+
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
+SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/weighted_ngram_tracing_combine_files.py"
+
+# List of corpora - we will loop across all (skipping if data does not exist)
+CORPORA=(
+    "ACL"
+    "Amazon"
+    "Enron Cleaned"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "Reddit"
+    "StackExchange"
+    "The Apricity"
+    "The Telegraph"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+# Loop through data types
+for DATA_TYPE in test training; do
+
+    # Loop through corpora
+    for CORPUS in "${CORPORA[@]}"; do
+
+        # Loop through weights
+        for WEIGHT in linear power exp; do
+
+            DATA_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
+            SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}_combined_scores_raw.rds"
+
+            # Skip if input directory does not exist
+            if [ ! -d "${DATA_LOC}" ]; then
+                echo "Skipping missing directory: ${DATA_LOC}"
+                continue
+            fi
+
+            echo "Running:"
+            echo "  DATA_TYPE = ${DATA_TYPE}"
+            echo "  CORPUS    = ${CORPUS}"
+            echo "  WEIGHT    = ${WEIGHT}"
+            echo "  DATA_LOC  = ${DATA_LOC}"
+            echo "  SAVE_LOC  = ${SAVE_LOC}"
+
+            python -u "${SCRIPT_LOC}" \
+                --data_loc "${DATA_LOC}" \
+                --save_loc "${SAVE_LOC}"
+
+        done
+    done
+done
