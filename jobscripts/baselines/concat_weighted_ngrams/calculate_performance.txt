@@ -1,0 +1,57 @@
+#!/bin/bash --login
+
+#SBATCH -J perf_score
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -e
+
+module load apps/gcc/R/4.4.2
+
+BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
+SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/calculate_performance.R"
+
+GROUPING_COLS="data_type,corpus,scoring_model,min_token_size,weight,alpha,base"
+SCORING_COLS="simpson_score,jaccard_score"
+
+BY="case"
+PROGRESS="FALSE"
+SAVE_RDS="TRUE"
+
+INPUT_FILES=(
+  "completed_adj_token_size_raw.rds"
+  "completed_like_for_like_raw.rds"
+)
+
+for INPUT_FILE in "${INPUT_FILES[@]}"; do
+
+    INPUT_LOC="${BASE_DIR}/${INPUT_FILE}"
+
+    if [[ "${INPUT_FILE}" == "completed_adj_token_size_raw.rds" ]]; then
+        SAVE_LOC_UNCALIBRATED="${BASE_DIR}/performance_uncalibrated_raw.xlsx"
+        SAVE_LOC_CALIBRATED="${BASE_DIR}/performance_calibrated_raw.xlsx"
+    elif [[ "${INPUT_FILE}" == "completed_like_for_like_raw.rds" ]]; then
+        SAVE_LOC_UNCALIBRATED="${BASE_DIR}/lfl_performance_uncalibrated_raw.xlsx"
+        SAVE_LOC_CALIBRATED="${BASE_DIR}/lfl_performance_calibrated_raw.xlsx"
+    fi
+
+    echo "--------------------------------------------------"
+    echo "Running performance scoring for:"
+    echo "INPUT_LOC=${INPUT_LOC}"
+    echo "SAVE_LOC_UNCALIBRATED=${SAVE_LOC_UNCALIBRATED}"
+    echo "SAVE_LOC_CALIBRATED=${SAVE_LOC_CALIBRATED}"
+    echo "--------------------------------------------------"
+
+    Rscript "${SCRIPT_LOC}" \
+      --input_loc "${INPUT_LOC}" \
+      --save_loc_uncalibrated "${SAVE_LOC_UNCALIBRATED}" \
+      --save_loc_calibrated "${SAVE_LOC_CALIBRATED}" \
+      --grouping_cols "${GROUPING_COLS}" \
+      --scoring_cols "${SCORING_COLS}" \
+      --by "${BY}" \
+      --progress "${PROGRESS}" \
+      --save_rds "${SAVE_RDS}"
+
+done
