@@ -6,7 +6,7 @@
 #SBATCH -n 1
 #SBATCH --mem=64G
 
-set -e  # stop on real errors
+set -e
 
 # Load conda module
 module load apps/binapps/anaconda3/2024.10
@@ -14,11 +14,13 @@ module load apps/binapps/anaconda3/2024.10
 # Activate the environment
 conda activate venv
 
-# Define variables
-MODEL="gpt2"
-
-BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing"
 SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/weighted_ngram_tracing_combine_files.py"
+
+# If any other models used add here
+MODEL_LIST=(
+    "gpt2"
+)
 
 # List of corpora - we will loop across all (skipping if data does not exist)
 CORPORA=(
@@ -36,35 +38,149 @@ CORPORA=(
     "Yelp"
 )
 
-# Loop through data types
-for DATA_TYPE in test training; do
+DATA_TYPES=(
+    "test"
+    "training"
+)
 
-    # Loop through corpora
+WEIGHTS=(
+    "linear"
+    "power"
+    "exp"
+)
+
+############################################
+# OVERWRITE SETTINGS
+############################################
+# STEP 1: combine xlsx files within weight folders
+OVERWRITE_STEP1=false
+# STEP 2: combine weight-level RDS files to model-level
+OVERWRITE_STEP2=false
+# STEP 3: combine model-level RDS files to corpus-level
+OVERWRITE_STEP3=true
+# STEP 4: combine corpus-level RDS files to data_type-level
+OVERWRITE_STEP4=true
+
+############################################
+# STEP 1: combine xlsx files within weight folders
+############################################
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
     for CORPUS in "${CORPORA[@]}"; do
+        for MODEL in "${MODEL_LIST[@]}"; do
+            for WEIGHT in "${WEIGHTS[@]}"; do
 
-        # Loop through weights
-        for WEIGHT in linear power exp; do
+                DATA_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
+                SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}_combined_scores_raw.rds"
 
-            DATA_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}"
-            SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}_combined_scores_raw.rds"
+                if [ ! -d "${DATA_LOC}" ]; then
+                    echo "Skipping missing directory: ${DATA_LOC}"
+                    continue
+                fi
 
-            # Skip if input directory does not exist
-            if [ ! -d "${DATA_LOC}" ]; then
-                echo "Skipping missing directory: ${DATA_LOC}"
-                continue
-            fi
+                CMD=(
+                    python -u "${SCRIPT_LOC}"
+                    --mode combine_xlsx
+                    --combine_level weight
+                    --data_loc "${DATA_LOC}"
+                    --save_loc "${SAVE_LOC}"
+                )
 
-            echo "Running:"
-            echo "  DATA_TYPE = ${DATA_TYPE}"
-            echo "  CORPUS    = ${CORPUS}"
-            echo "  WEIGHT    = ${WEIGHT}"
-            echo "  DATA_LOC  = ${DATA_LOC}"
-            echo "  SAVE_LOC  = ${SAVE_LOC}"
+                if [ "${OVERWRITE_STEP1}" = true ]; then
+                    CMD+=(--overwrite)
+                fi
 
-            python -u "${SCRIPT_LOC}" \
-                --data_loc "${DATA_LOC}" \
-                --save_loc "${SAVE_LOC}"
-
+                "${CMD[@]}"
+            done
         done
     done
+done
+
+############################################
+# STEP 2: combine weight-level RDS files to model-level
+############################################
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+        for MODEL in "${MODEL_LIST[@]}"; do
+
+            SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/combined_scores_raw.rds"
+
+            INPUT_FILES=(
+                "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/linear_combined_scores_raw.rds"
+                "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/power_combined_scores_raw.rds"
+                "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/exp_combined_scores_raw.rds"
+            )
+
+            CMD=(
+                python -u "${SCRIPT_LOC}"
+                --mode combine_rds
+                --combine_level model
+                --save_loc "${SAVE_LOC}"
+                --input_files "${INPUT_FILES[@]}"
+            )
+
+            if [ "${OVERWRITE_STEP2}" = true ]; then
+                CMD+=(--overwrite)
+            fi
+
+            "${CMD[@]}"
+        done
+    done
+done
+
+############################################
+# STEP 3: combine model-level RDS files to corpus-level
+############################################
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+
+        SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/combined_scores_raw.rds"
+
+        INPUT_FILES=()
+        for MODEL in "${MODEL_LIST[@]}"; do
+            INPUT_FILES+=("${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/combined_scores_raw.rds")
+        done
+
+        CMD=(
+            python -u "${SCRIPT_LOC}"
+            --mode combine_rds
+            --combine_level corpus
+            --save_loc "${SAVE_LOC}"
+            --input_files "${INPUT_FILES[@]}"
+        )
+
+        if [ "${OVERWRITE_STEP3}" = true ]; then
+            CMD+=(--overwrite)
+        fi
+
+        "${CMD[@]}"
+
+    done
+done
+
+############################################
+# STEP 4: combine corpus-level RDS files to data_type-level
+############################################
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+
+    SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/combined_scores_raw.rds"
+
+    INPUT_FILES=()
+    for CORPUS in "${CORPORA[@]}"; do
+        INPUT_FILES+=("${BASE_LOC}/${DATA_TYPE}/${CORPUS}/combined_scores_raw.rds")
+    done
+
+    CMD=(
+        python -u "${SCRIPT_LOC}"
+        --mode combine_rds
+        --combine_level data_type
+        --save_loc "${SAVE_LOC}"
+        --input_files "${INPUT_FILES[@]}"
+    )
+
+    if [ "${OVERWRITE_STEP4}" = true ]; then
+        CMD+=(--overwrite)
+    fi
+
+    "${CMD[@]}"
+
 done
