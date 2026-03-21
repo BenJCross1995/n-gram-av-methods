@@ -11,8 +11,8 @@ set -e
 # -----------------------------
 # User-defined settings
 # -----------------------------
-COMBINE_SCRIPT="/mnt/hum01-home01/d34195bc/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/combine_files.txt"
-ADJUST_SCRIPT="/mnt/hum01-home01/d34195bc/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/adjust_token_size_and_like_for_like.txt"
+COMBINE_SCRIPT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/combine_files.txt"
+ADJUST_SCRIPT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/adjust_token_size_and_like_for_like.txt"
 
 # -----------------------------
 # Submit combine job first
