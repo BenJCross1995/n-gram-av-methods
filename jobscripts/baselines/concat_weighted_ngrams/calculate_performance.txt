@@ -8,7 +8,7 @@
 
 set -e
 
-module load apps/gcc/R/4.4.2
+module load apps/R/4.4.2
 
 BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
 SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/calculate_performance.R"
