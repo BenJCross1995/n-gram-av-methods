@@ -27,7 +27,7 @@ echo "  JOB_ID=${ROUGH_LINEAR_JOB_ID}"
 # Submit combine job first
 # only after adding rough linear score succeeds
 # -----------------------------
-COMBINE_JOB_ID=$(sbatch --parsable "${COMBINE_SCRIPT}")
+COMBINE_JOB_ID=$(sbatch --parsable --dependency=afterok:${ROUGH_LINEAR_JOB_ID}  "${COMBINE_SCRIPT}")
 echo "Combine job submitted:"
 echo "  SCRIPT=${COMBINE_SCRIPT}"
 echo "  JOB_ID=${COMBINE_JOB_ID}"
