@@ -107,12 +107,10 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
             SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/combined_scores_raw.rds"
 
-            INPUT_FILES=(
-                "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/linear_combined_scores_raw.rds"
-                "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/linear_rough_combined_scores_raw.rds"
-                "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/power_combined_scores_raw.rds"
-                "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/exp_combined_scores_raw.rds"
-            )
+            INPUT_FILES = ()
+            for WEIGHT in "${WEIGHTS[@]}"; do
+                INPUT_FILES+=("${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}_combined_scores_raw.rds")
+            done
 
             CMD=(
                 python -u "${SCRIPT_LOC}"
