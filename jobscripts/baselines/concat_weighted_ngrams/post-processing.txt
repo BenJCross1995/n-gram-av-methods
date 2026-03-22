@@ -11,16 +11,27 @@ set -e
 # -----------------------------
 # User-defined settings
 # -----------------------------
+ROUGH_LINEAR_SCORES_SCRIPT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/get_rough_linear_scores.txt"
 COMBINE_SCRIPT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/combine_files.txt"
 ADJUST_SCRIPT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/jobscripts/baselines/concat_weighted_ngrams/adjust_token_size_and_like_for_like.txt"
 
 # -----------------------------
+# Submit job to add rough linear weighting
+# -----------------------------
+ROUGH_LINEAR_JOB_ID=$(sbatch --parsable "${ROUGH_LINEAR_SCORES_SCRIPT}")
+echo "Roguh linear job submitted:"
+echo "  SCRIPT=${ROUGH_LINEAR_SCORES_SCRIPT}"
+echo "  JOB_ID=${ROUGH_LINEAR_JOB_ID}"
+
+# -----------------------------
 # Submit combine job first
+# only after adding rough linear score succeeds
 # -----------------------------
 COMBINE_JOB_ID=$(sbatch --parsable "${COMBINE_SCRIPT}")
 echo "Combine job submitted:"
 echo "  SCRIPT=${COMBINE_SCRIPT}"
 echo "  JOB_ID=${COMBINE_JOB_ID}"
+echo "  DEPENDS_ON=${ROUGH_LINEAR_JOB_ID}"
 
 # -----------------------------
 # Submit adjusted/like-for-like job

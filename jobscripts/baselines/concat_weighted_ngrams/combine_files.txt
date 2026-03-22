@@ -45,6 +45,7 @@ DATA_TYPES=(
 
 WEIGHTS=(
     "linear"
+    "linear_rough"
     "power"
     "exp"
 )
@@ -55,7 +56,7 @@ WEIGHTS=(
 # STEP 1: combine xlsx files within weight folders
 OVERWRITE_STEP1=false
 # STEP 2: combine weight-level RDS files to model-level
-OVERWRITE_STEP2=false
+OVERWRITE_STEP2=true
 # STEP 3: combine model-level RDS files to corpus-level
 OVERWRITE_STEP3=true
 # STEP 4: combine corpus-level RDS files to data_type-level
