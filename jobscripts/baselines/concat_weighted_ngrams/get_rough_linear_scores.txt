@@ -1,0 +1,65 @@
+#!/bin/bash --login
+
+#SBATCH -J combine_scores
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -e
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
+SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/weighted_ngram_tracing_add_rough_scores.py"
+
+MODEL_LIST=(
+    "gpt2"
+)
+
+CORPORA=(
+    "ACL"
+    "Amazon"
+    "Enron Cleaned"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "Reddit"
+    "StackExchange"
+    "The Apricity"
+    "The Telegraph"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+DATA_TYPES=(
+    "test"
+    "training"
+)
+
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+        for MODEL in "${MODEL_LIST[@]}"; do
+
+            DATA_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/linear"
+            SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/linear_rough"
+
+            if [ ! -d "${DATA_LOC}" ]; then
+                echo "Skipping missing directory: ${DATA_LOC}"
+                continue
+            fi
+
+            CMD=(
+                python -u "${SCRIPT_LOC}"
+                --input_dir "${DATA_LOC}"
+                --save_dir "${SAVE_LOC}"
+            )
+
+            "${CMD[@]}"
+        done
+    done
+done
