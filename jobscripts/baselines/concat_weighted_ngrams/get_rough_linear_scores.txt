@@ -1,6 +1,6 @@
 #!/bin/bash --login
 
-#SBATCH -J combine_scores
+#SBATCH -J add_linear_rough
 #SBATCH -p himem
 #SBATCH -t 7-0
 #SBATCH -n 1
