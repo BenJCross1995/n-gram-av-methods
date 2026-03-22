@@ -88,13 +88,15 @@ def main():
     unknown = apply_temp_doc_id(unknown)
     
     print("Data loaded")
-    
+    selected_problem = args.problem.strip().strip('"').strip("'")
+    print(selected_problem)
     # NOTE - Is this used?
     metadata = read_rds(args.metadata_loc)
     filtered_metadata = metadata[
         (metadata['corpus'] == args.corpus)
-        & (metadata['problem'] == args.problem)
+        & (metadata['problem'] == selected_problem)
     ]
+    print(filtered_metadata)
     # agg_metadata = build_metadata_df(filtered_metadata, known, unknown)
     
     # -----
@@ -151,7 +153,7 @@ def main():
             "data_type": args.data_type,
             "corpus": args.corpus,
             "scoring_model": model_name,
-            "problem": args.problem,
+            "problem": selected_problem,
             "known_author": known_author,
             "unknown_author": unknown_author,
             "target": known_author == unknown_author,
