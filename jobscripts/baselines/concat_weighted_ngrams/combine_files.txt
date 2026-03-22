@@ -109,6 +109,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
             INPUT_FILES=(
                 "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/linear_combined_scores_raw.rds"
+                "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/linear_rough_combined_scores_raw.rds"
                 "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/power_combined_scores_raw.rds"
                 "${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/exp_combined_scores_raw.rds"
             )
