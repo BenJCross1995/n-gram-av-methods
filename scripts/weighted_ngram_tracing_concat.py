@@ -89,14 +89,14 @@ def main():
     
     print("Data loaded")
     selected_problem = args.problem.strip().strip('"').strip("'")
-    print(selected_problem)
+
     # NOTE - Is this used?
     metadata = read_rds(args.metadata_loc)
     filtered_metadata = metadata[
         (metadata['corpus'] == args.corpus)
         & (metadata['problem'] == selected_problem)
     ]
-    print(filtered_metadata)
+
     # agg_metadata = build_metadata_df(filtered_metadata, known, unknown)
     
     # -----
