@@ -49,12 +49,15 @@ def main():
     # -----
     # LOAD DATA & LOCAL MODEL
     # -----
-    save_loc = f"{args.save_loc}/{args.problem}.xlsx"
+    
+    selected_problem = args.problem.strip().strip('"').strip("'")
+    
+    save_loc = f"{args.save_loc}/{selected_problem}.xlsx"
     
     if args.completed_loc:
-        completed_loc = f"{args.completed_loc}/{args.problem}.xlsx"
+        completed_loc = f"{args.completed_loc}/{selected_problem}.xlsx"
         if os.path.exists(completed_loc):
-            print(f"Result for {args.problem} already exists in the completed folder. Exiting.")
+            print(f"Result for {selected_problem} already exists in the completed folder. Exiting.")
             sys.exit()
     
     # Skip the problem if already exists
@@ -62,7 +65,7 @@ def main():
         print(f"Path {save_loc} already exists. Exiting.")
         sys.exit()
         
-    print(f"Working on problem: {args.problem}")
+    print(f"Working on problem: {selected_problem}")
     
     print("Loading model")
     tokenizer, model = load_model(args.model_loc)
@@ -76,13 +79,14 @@ def main():
     unknown = read_jsonl(args.unknown_loc)
     unknown = apply_temp_doc_id(unknown)
     
+    
     print("Data loaded")
     
     # NOTE - Is this used?
     metadata = read_rds(args.metadata_loc)
     filtered_metadata = metadata[
         (metadata['corpus'] == args.corpus)
-        & (metadata['problem'] == args.problem)
+        & (metadata['problem'] == selected_problem)
     ]
     agg_metadata = build_metadata_df(filtered_metadata, known, unknown)
     
@@ -137,7 +141,7 @@ def main():
             "corpus": args.corpus,
             "scoring_model": model_name,
             "max_context_tokens": args.num_tokens,
-            "problem": args.problem,
+            "problem": selected_problem,
             "known_author": known_author,
             "unknown_author": unknown_author,
             "target": known_author == unknown_author,
