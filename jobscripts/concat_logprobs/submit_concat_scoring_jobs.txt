@@ -1,0 +1,192 @@
+#!/bin/bash --login
+
+#SBATCH -J submit_concat_scores
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -euo pipefail
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# ============================================================
+# Central shared settings
+# ============================================================
+
+PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+SCRIPT_ROOT="${PROJECT_ROOT}/scripts"
+
+DATA_ROOT="/mnt/hum01-home01/d34195bc/av_datasets"
+MODEL_ROOT="/mnt/hum01-home01/d34195bc/models"
+EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
+
+# Generic array jobscript that actually does the work
+JOB_SCRIPT="${PROJECT_ROOT}/job_scripts/run_concat_scoring_.txt"
+
+# Experiment naming
+EXPERIMENT_NAME="concat_ngram_masking_logprobs"
+SAVE_SUBDIR="raw"
+COMPLETED_SUBDIR="raw"
+
+# Problem list file name to look for
+PROBLEM_LIST_NAME="agg_problem_list.txt"
+
+# Python scripts / shared script settings
+MULTI_SCRIPT="score_ngrams_multi.py"
+CONCAT_SCRIPT="score_ngrams_concat.py"
+SCORE_SCRIPT_NAME="score_ngrams_concat"
+
+# Logs
+LOG_DIR="${PROJECT_ROOT}/slurm_logs"
+mkdir -p "${LOG_DIR}"
+
+# Whether to chain each submitted job after the last one
+CHAIN_JOBS=true
+
+# Shared SLURM settings for child jobs
+CHILD_PARTITION="himem"
+CHILD_TIME="7-0"
+CHILD_NTASKS="1"
+CHILD_MEM="64G"
+
+# ============================================================
+# Lists to edit
+# ============================================================
+
+MODEL_LIST=(
+    "gpt2"
+)
+
+CORPORA=(
+    "ACL"
+    "Amazon"
+    "Enron Cleaned"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "Reddit"
+    "StackExchange"
+    "The Apricity"
+    "The Telegraph"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+DATA_TYPES=(
+    "test"
+    "training"
+)
+
+# ============================================================
+# Helpers
+# ============================================================
+
+slugify() {
+    local x="$1"
+    x="${x,,}"        # lowercase
+    x="${x// /_}"     # spaces -> underscores
+    x="${x//\'/}"     # remove apostrophes
+    x="${x//,/}"      # remove commas
+    x="${x//\//_}"    # slashes -> underscores
+    x="${x//(/}"      # remove (
+    x="${x//)/}"      # remove )
+    printf '%s\n' "$x"
+}
+
+count_nonempty_lines() {
+    local file="$1"
+    awk 'NF {c++} END {print c+0}' "$file"
+}
+
+# ============================================================
+# Submit loop
+# ============================================================
+
+PREV_JOB_ID=""
+
+for MODEL in "${MODEL_LIST[@]}"; do
+    for DATA_TYPE in "${DATA_TYPES[@]}"; do
+        for CORPUS in "${CORPORA[@]}"; do
+
+            PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
+
+            if [[ ! -f "${PROBLEM_LIST}" ]]; then
+                echo "Skipping missing problem list:"
+                echo "  ${PROBLEM_LIST}"
+                echo
+                continue
+            fi
+
+            NUM_TASKS="$(count_nonempty_lines "${PROBLEM_LIST}")"
+
+            if [[ "${NUM_TASKS}" -eq 0 ]]; then
+                echo "Skipping empty problem list:"
+                echo "  ${PROBLEM_LIST}"
+                echo
+                continue
+            fi
+
+            JOB_NAME="$(slugify "${CORPUS}")_$(slugify "${DATA_TYPE}")_$(slugify "${MODEL}")"
+
+            echo "------------------------------------------------------------"
+            echo "Submitting:"
+            echo "  CORPUS       = ${CORPUS}"
+            echo "  DATA_TYPE    = ${DATA_TYPE}"
+            echo "  MODEL        = ${MODEL}"
+            echo "  PROBLEM_LIST = ${PROBLEM_LIST}"
+            echo "  NUM_TASKS    = ${NUM_TASKS}"
+            echo "  JOB_NAME     = ${JOB_NAME}"
+
+            SBATCH_ARGS=(
+                --parsable
+                --job-name "${JOB_NAME}"
+                --array "1-${NUM_TASKS}"
+                -p "${CHILD_PARTITION}"
+                -t "${CHILD_TIME}"
+                -n "${CHILD_NTASKS}"
+                --mem "${CHILD_MEM}"
+                -o "${LOG_DIR}/%x_%A_%a.out"
+                -e "${LOG_DIR}/%x_%A_%a.err"
+            )
+
+            if [[ "${CHAIN_JOBS}" == "true" && -n "${PREV_JOB_ID}" ]]; then
+                SBATCH_ARGS+=(--dependency="afterok:${PREV_JOB_ID}")
+                echo "  DEPENDS ON   = ${PREV_JOB_ID}"
+            fi
+
+            JOB_ID="$(
+                CORPUS="${CORPUS}" \
+                DATA_TYPE="${DATA_TYPE}" \
+                MODEL="${MODEL}" \
+                PROJECT_ROOT="${PROJECT_ROOT}" \
+                SCRIPT_ROOT="${SCRIPT_ROOT}" \
+                DATA_ROOT="${DATA_ROOT}" \
+                MODEL_ROOT="${MODEL_ROOT}" \
+                EXPERIMENT_ROOT="${EXPERIMENT_ROOT}" \
+                EXPERIMENT_NAME="${EXPERIMENT_NAME}" \
+                SAVE_SUBDIR="${SAVE_SUBDIR}" \
+                COMPLETED_SUBDIR="${COMPLETED_SUBDIR}" \
+                PROBLEM_LIST_NAME="${PROBLEM_LIST_NAME}" \
+                MULTI_SCRIPT="${MULTI_SCRIPT}" \
+                CONCAT_SCRIPT="${CONCAT_SCRIPT}" \
+                SCORE_SCRIPT_NAME="${SCORE_SCRIPT_NAME}" \
+                sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
+            )"
+
+            echo "  SUBMITTED ID = ${JOB_ID}"
+            echo
+
+            if [[ "${CHAIN_JOBS}" == "true" ]]; then
+                PREV_JOB_ID="${JOB_ID}"
+            fi
+
+        done
+    done
+done
+
+echo "All submissions complete."
