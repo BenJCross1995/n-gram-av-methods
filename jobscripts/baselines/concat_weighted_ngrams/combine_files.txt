@@ -107,7 +107,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
             SAVE_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/combined_scores_raw.rds"
 
-            INPUT_FILES = ()
+            INPUT_FILES=()
             for WEIGHT in "${WEIGHTS[@]}"; do
                 INPUT_FILES+=("${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/${WEIGHT}_combined_scores_raw.rds")
             done
