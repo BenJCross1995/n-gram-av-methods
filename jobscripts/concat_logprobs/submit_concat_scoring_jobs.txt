@@ -26,7 +26,7 @@ MODEL_ROOT="/mnt/hum01-home01/d34195bc/models"
 EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
 
 # Generic array jobscript that actually does the work
-JOB_SCRIPT="${PROJECT_ROOT}/jobscripts/concat_logprobs/run_concat_scoring_.txt"
+JOB_SCRIPT="${PROJECT_ROOT}/jobscripts/concat_logprobs/run_concat_scoring.txt"
 
 # Experiment naming
 EXPERIMENT_NAME="concat_ngram_masking_logprobs"
