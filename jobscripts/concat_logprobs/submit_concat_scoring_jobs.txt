@@ -41,6 +41,7 @@ MULTI_SCRIPT="score_ngrams_multi.py"
 CONCAT_SCRIPT="score_ngrams_concat.py"
 SCORE_SCRIPT_NAME="score_ngrams_concat"
 
+# Which scripts to run
 RUN_MULTI=true
 RUN_CONCAT=false
 
@@ -178,6 +179,8 @@ for MODEL in "${MODEL_LIST[@]}"; do
                 MULTI_SCRIPT="${MULTI_SCRIPT}" \
                 CONCAT_SCRIPT="${CONCAT_SCRIPT}" \
                 SCORE_SCRIPT_NAME="${SCORE_SCRIPT_NAME}" \
+                RUN_MULTI="${RUN_MULTI}" \
+                RUN_CONCAT="${RUN_CONCAT}" \
                 sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
             )"
 

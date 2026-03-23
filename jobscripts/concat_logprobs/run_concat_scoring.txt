@@ -88,6 +88,9 @@ COMMON_ARGS=(
     --problem "${PROBLEM}"
 )
 
+RUN_MULTI="${RUN_MULTI:-true}"
+RUN_CONCAT="${RUN_CONCAT:-false}"
+
 # ============================================================
 # Step 1: score_ngrams_multi.py
 # ============================================================
