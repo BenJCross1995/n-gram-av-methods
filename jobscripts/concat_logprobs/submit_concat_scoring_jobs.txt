@@ -80,12 +80,6 @@ CORPORA=(
     "Yelp"
 )
 
-CORPORA=(
-    "The Apricity"
-    "The Telegraph"
-    "TripAdvisor"
-)
-
 DATA_TYPES=(
     "test"
     "training"
