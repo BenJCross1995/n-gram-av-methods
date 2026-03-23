@@ -92,15 +92,19 @@ COMMON_ARGS=(
 # Step 1: score_ngrams_multi.py
 # ============================================================
 
-python -u "${SCRIPT_ROOT}/${MULTI_SCRIPT}" \
-    "${COMMON_ARGS[@]}" \
-    --score_script "${SCORE_SCRIPT_NAME}"
+if [[ "${RUN_MULTI}" == "true" ]]; then
+    python -u "${SCRIPT_ROOT}/${MULTI_SCRIPT}" \
+        "${COMMON_ARGS[@]}" \
+        --score_script "${SCORE_SCRIPT_NAME}"
+fi
 
 # ============================================================
 # Step 2: score_ngrams_concat.py
 # ============================================================
 
-python -u "${SCRIPT_ROOT}/${CONCAT_SCRIPT}" \
-    "${COMMON_ARGS[@]}"
+if [[ "${RUN_CONCAT}" == "true" ]]; then
+    python -u "${SCRIPT_ROOT}/${CONCAT_SCRIPT}" \
+        "${COMMON_ARGS[@]}"
+fi
 
 echo "Finished successfully."

@@ -41,12 +41,15 @@ MULTI_SCRIPT="score_ngrams_multi.py"
 CONCAT_SCRIPT="score_ngrams_concat.py"
 SCORE_SCRIPT_NAME="score_ngrams_concat"
 
+RUN_MULTI=true
+RUN_CONCAT=false
+
 # Logs
 LOG_DIR="${PROJECT_ROOT}/slurm_logs"
 mkdir -p "${LOG_DIR}"
 
 # Whether to chain each submitted job after the last one
-CHAIN_JOBS=true
+CHAIN_JOBS=false
 
 # Shared SLURM settings for child jobs
 CHILD_PARTITION="himem"
