@@ -1,0 +1,106 @@
+#!/bin/bash --login
+
+#SBATCH -n 1
+
+set -euo pipefail
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# ============================================================
+# Required vars passed in from master submitter
+# ============================================================
+
+: "${CORPUS:?Missing CORPUS}"
+: "${DATA_TYPE:?Missing DATA_TYPE}"
+: "${MODEL:?Missing MODEL}"
+
+: "${PROJECT_ROOT:?Missing PROJECT_ROOT}"
+: "${SCRIPT_ROOT:?Missing SCRIPT_ROOT}"
+: "${DATA_ROOT:?Missing DATA_ROOT}"
+: "${MODEL_ROOT:?Missing MODEL_ROOT}"
+: "${EXPERIMENT_ROOT:?Missing EXPERIMENT_ROOT}"
+
+: "${EXPERIMENT_NAME:?Missing EXPERIMENT_NAME}"
+: "${SAVE_SUBDIR:?Missing SAVE_SUBDIR}"
+: "${COMPLETED_SUBDIR:?Missing COMPLETED_SUBDIR}"
+: "${PROBLEM_LIST_NAME:?Missing PROBLEM_LIST_NAME}"
+
+: "${MULTI_SCRIPT:?Missing MULTI_SCRIPT}"
+: "${CONCAT_SCRIPT:?Missing CONCAT_SCRIPT}"
+: "${SCORE_SCRIPT_NAME:?Missing SCORE_SCRIPT_NAME}"
+
+# ============================================================
+# Build paths
+# ============================================================
+
+PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
+KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
+UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
+MODEL_LOC="${MODEL_ROOT}/${MODEL}"
+
+SAVE_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${SAVE_SUBDIR}"
+COMPLETED_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${COMPLETED_SUBDIR}"
+
+mkdir -p "${SAVE_LOC}" "${COMPLETED_LOC}"
+
+# ============================================================
+# Get problem for this array task
+# Count only non-empty lines
+# ============================================================
+
+PROBLEM="$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NF {c++} c==n {print; exit}' "${PROBLEM_LIST}")"
+
+if [[ -z "${PROBLEM:-}" ]]; then
+    echo "ERROR: No problem found for array task ${SLURM_ARRAY_TASK_ID}"
+    echo "Problem list: ${PROBLEM_LIST}"
+    exit 1
+fi
+
+echo "============================================================"
+echo "CORPUS        : ${CORPUS}"
+echo "DATA_TYPE     : ${DATA_TYPE}"
+echo "MODEL         : ${MODEL}"
+echo "TASK_ID       : ${SLURM_ARRAY_TASK_ID}"
+echo "PROBLEM       : ${PROBLEM}"
+echo "PROBLEM_LIST  : ${PROBLEM_LIST}"
+echo "SAVE_LOC      : ${SAVE_LOC}"
+echo "COMPLETED_LOC : ${COMPLETED_LOC}"
+echo "============================================================"
+
+# ============================================================
+# Shared args
+# ============================================================
+
+COMMON_ARGS=(
+    --known_loc "${KNOWN_LOC}"
+    --unknown_loc "${UNKNOWN_LOC}"
+    --metadata_loc "${METADATA_LOC}"
+    --model_loc "${MODEL_LOC}"
+    --save_loc "${SAVE_LOC}"
+    --completed_loc "${COMPLETED_LOC}"
+    --corpus "${CORPUS}"
+    --data_type "${DATA_TYPE}"
+    --problem "${PROBLEM}"
+)
+
+# ============================================================
+# Step 1: score_ngrams_multi.py
+# ============================================================
+
+python -u "${SCRIPT_ROOT}/${MULTI_SCRIPT}" \
+    "${COMMON_ARGS[@]}" \
+    --score_script "${SCORE_SCRIPT_NAME}"
+
+# ============================================================
+# Step 2: score_ngrams_concat.py
+# ============================================================
+
+python -u "${SCRIPT_ROOT}/${CONCAT_SCRIPT}" \
+    "${COMMON_ARGS[@]}"
+
+echo "Finished successfully."
