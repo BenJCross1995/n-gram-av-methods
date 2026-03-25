@@ -2,7 +2,7 @@
 
 #SBATCH -J combine_raw_scores
 #SBATCH -t 4-0
-#SBATCH -p gpuV
+#SBATCH -p gpuL
 #SBATCH -G 1
 
 set -e
