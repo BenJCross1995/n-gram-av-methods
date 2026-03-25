@@ -93,6 +93,8 @@ OVERWRITE_STEP2=true
 OVERWRITE_STEP3=true
 # STEP 4: combine corpus-level RDS files to data_type-level
 OVERWRITE_STEP4=true
+# STEP 5: combine data_type-level RDS files to overall-level
+OVERWRITE_STEP5=true
 
 ############################################
 # STEP 1: combine xlsx files within raw/raw_10/etc folders
@@ -153,7 +155,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
             MODEL_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}"
             RAW_RESULTS_DIR="${MODEL_LOC}/raw_results"
-            SAVE_LOC="${MODEL_LOC}/combined_complete_results_raw.rds"
+            SAVE_LOC="${MODEL_LOC}/results/combined_complete_results_raw.rds"
 
             if [ ! -d "${RAW_RESULTS_DIR}" ]; then
                 echo "Skipping missing raw_results directory: ${RAW_RESULTS_DIR}"
@@ -203,7 +205,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     for CORPUS in "${CORPORA[@]}"; do
 
         CORPUS_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}"
-        SAVE_LOC="${CORPUS_LOC}/combined_complete_results_raw.rds"
+        SAVE_LOC="${CORPUS_LOC}/results/combined_complete_results_raw.rds"
 
         if [ ! -d "${CORPUS_LOC}" ]; then
             echo "Skipping missing corpus directory: ${CORPUS_LOC}"
@@ -212,7 +214,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
         INPUT_FILES=()
         for MODEL in "${MODEL_LIST[@]}"; do
-            FILE="${CORPUS_LOC}/${MODEL}/combined_complete_results_raw.rds"
+            FILE="${CORPUS_LOC}/${MODEL}/results/combined_complete_results_raw.rds"
             if [ -f "${FILE}" ]; then
                 INPUT_FILES+=("${FILE}")
             else
@@ -252,7 +254,7 @@ done
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
     DATA_TYPE_LOC="${BASE_LOC}/${DATA_TYPE}"
-    SAVE_LOC="${DATA_TYPE_LOC}/combined_complete_results_raw.rds"
+    SAVE_LOC="${DATA_TYPE_LOC}/results/combined_complete_results_raw.rds"
 
     if [ ! -d "${DATA_TYPE_LOC}" ]; then
         echo "Skipping missing data_type directory: ${DATA_TYPE_LOC}"
@@ -261,7 +263,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
     INPUT_FILES=()
     for CORPUS in "${CORPORA[@]}"; do
-        FILE="${DATA_TYPE_LOC}/${CORPUS}/combined_complete_results_raw.rds"
+        FILE="${DATA_TYPE_LOC}/${CORPUS}/results/combined_complete_results_raw.rds"
         if [ -f "${FILE}" ]; then
             INPUT_FILES+=("${FILE}")
         else
@@ -293,5 +295,42 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     "${CMD[@]}"
 
 done
+
+############################################
+# STEP 5: combine data_type-level RDS files to overall-level
+############################################
+SAVE_LOC="${BASE_LOC}/results/combined_complete_results_raw.rds"
+
+INPUT_FILES=()
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    FILE="${BASE_LOC}/${DATA_TYPE}/results/combined_complete_results_raw.rds"
+    if [ -f "${FILE}" ]; then
+        INPUT_FILES+=("${FILE}")
+    else
+        echo "Missing data_type-level file, skipping: ${FILE}"
+    fi
+done
+
+if [ "${#INPUT_FILES[@]}" -eq 0 ]; then
+    echo "No data_type-level files found for overall combine: ${BASE_LOC}"
+else
+    CMD=(
+        python -u "${SCRIPT_LOC}"
+        --mode combine_rds
+        --combine_level overall
+        --save_loc "${SAVE_LOC}"
+        --input_files "${INPUT_FILES[@]}"
+    )
+
+    if [ "${OVERWRITE_STEP5}" = true ]; then
+        CMD+=(--overwrite)
+    fi
+
+    if [ "${COMPLETE_ONLY}" = true ]; then
+        CMD+=(--complete_only)
+    fi
+
+    "${CMD[@]}"
+fi
 
 echo "Finished successfully."
