@@ -37,17 +37,9 @@ CORPORA=(
     "Yelp"
 )
 
-CORPORA=(
-    "ACL"
-)
-
 DATA_TYPES=(
     "test"
     "training"
-)
-
-DATA_TYPES=(
-    "test"
 )
 
 # raw/raw_10/raw_20/etc folders inside each model directory
