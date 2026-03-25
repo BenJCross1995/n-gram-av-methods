@@ -155,7 +155,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
             MODEL_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}"
             RAW_RESULTS_DIR="${MODEL_LOC}/raw_results"
-            SAVE_LOC="${MODEL_LOC}/results/combined_complete_results_raw.rds"
+            SAVE_LOC="${MODEL_LOC}/_results/combined_complete_results_raw.rds"
 
             if [ ! -d "${RAW_RESULTS_DIR}" ]; then
                 echo "Skipping missing raw_results directory: ${RAW_RESULTS_DIR}"
@@ -205,7 +205,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     for CORPUS in "${CORPORA[@]}"; do
 
         CORPUS_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}"
-        SAVE_LOC="${CORPUS_LOC}/results/combined_complete_results_raw.rds"
+        SAVE_LOC="${CORPUS_LOC}/_results/combined_complete_results_raw.rds"
 
         if [ ! -d "${CORPUS_LOC}" ]; then
             echo "Skipping missing corpus directory: ${CORPUS_LOC}"
@@ -214,7 +214,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
         INPUT_FILES=()
         for MODEL in "${MODEL_LIST[@]}"; do
-            FILE="${CORPUS_LOC}/${MODEL}/results/combined_complete_results_raw.rds"
+            FILE="${CORPUS_LOC}/${MODEL}/_results/combined_complete_results_raw.rds"
             if [ -f "${FILE}" ]; then
                 INPUT_FILES+=("${FILE}")
             else
@@ -254,7 +254,7 @@ done
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
     DATA_TYPE_LOC="${BASE_LOC}/${DATA_TYPE}"
-    SAVE_LOC="${DATA_TYPE_LOC}/results/combined_complete_results_raw.rds"
+    SAVE_LOC="${DATA_TYPE_LOC}/_results/combined_complete_results_raw.rds"
 
     if [ ! -d "${DATA_TYPE_LOC}" ]; then
         echo "Skipping missing data_type directory: ${DATA_TYPE_LOC}"
@@ -263,7 +263,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
 
     INPUT_FILES=()
     for CORPUS in "${CORPORA[@]}"; do
-        FILE="${DATA_TYPE_LOC}/${CORPUS}/results/combined_complete_results_raw.rds"
+        FILE="${DATA_TYPE_LOC}/${CORPUS}/_results/combined_complete_results_raw.rds"
         if [ -f "${FILE}" ]; then
             INPUT_FILES+=("${FILE}")
         else
@@ -299,11 +299,11 @@ done
 ############################################
 # STEP 5: combine data_type-level RDS files to overall-level
 ############################################
-SAVE_LOC="${BASE_LOC}/results/combined_complete_results_raw.rds"
+SAVE_LOC="${BASE_LOC}/_results/combined_complete_results_raw.rds"
 
 INPUT_FILES=()
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
-    FILE="${BASE_LOC}/${DATA_TYPE}/results/combined_complete_results_raw.rds"
+    FILE="${BASE_LOC}/${DATA_TYPE}/_results/combined_complete_results_raw.rds"
     if [ -f "${FILE}" ]; then
         INPUT_FILES+=("${FILE}")
     else
