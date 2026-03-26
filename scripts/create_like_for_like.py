@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
-Create and save like-for-like and adjusted-token-size datasets.
+Create and save adjusted, like-for-like, and like-for-like-adjusted datasets.
 
 Pipeline
 --------
 1. Read an input dataframe from .xlsx or .rds
-2. Create a like-for-like version of the original data
-3. Save the like-for-like dataframe
-4. Apply adjusted token-size transformation to the like-for-like dataframe
-5. Save the adjusted dataframe
-
-This script is designed to process one input file per run. A batch script can
-loop over corpora, data types, and models and call this script repeatedly.
+2. Create an adjusted version of the original data
+3. Create a like-for-like version of the original data
+4. Create an adjusted version of the like-for-like data
+5. Save all derived outputs
 """
 
 import argparse
@@ -39,12 +36,13 @@ def parse_args():
         Parsed arguments for input/output locations and pipeline settings.
     """
     ap = argparse.ArgumentParser(
-        description="Create like-for-like and adjusted-token-size datasets"
+        description="Create adjusted, like-for-like, and like-for-like-adjusted datasets"
     )
 
     ap.add_argument("--input_loc", required=True)
-    ap.add_argument("--like_for_like_save_loc", required=True)
     ap.add_argument("--adjusted_save_loc", required=True)
+    ap.add_argument("--like_for_like_save_loc", required=True)
+    ap.add_argument("--like_for_like_adjusted_save_loc", required=True)
 
     ap.add_argument("--sheet_name", default=0)
     ap.add_argument("--overwrite", action="store_true")
@@ -206,19 +204,19 @@ def get_distinct_problems(
     group_cols: list[str],
 ) -> pd.DataFrame:
     """
-    Count distinct problem rows at each grouping level.
+    Count rows at each grouping level.
 
     Parameters
     ----------
     df : pd.DataFrame
         Input dataframe.
     group_cols : list[str]
-        Grouping columns used to define the distinct levels.
+        Grouping columns used to define distinct levels.
 
     Returns
     -------
     pd.DataFrame
-        One row per distinct group with a problem count column.
+        One row per distinct group with a problem_count column.
     """
     distinct_levels = (
         df.groupby(group_cols)
@@ -238,9 +236,6 @@ def add_adjusted_token_size(
     """
     Add adjusted token-size rows by carrying problems forward to lower thresholds.
 
-    Conceptually, this allows a problem observed at a higher min_token_size
-    to also contribute to lower adjusted thresholds within the same base group.
-
     Parameters
     ----------
     df : pd.DataFrame
@@ -255,22 +250,15 @@ def add_adjusted_token_size(
     Returns
     -------
     pd.DataFrame
-        Adjusted dataframe with min_token_size reassigned to the adjusted
-        threshold level.
+        Adjusted dataframe with min_token_size reassigned to the adjusted threshold.
     """
-    # Build the set of threshold levels available within each base group
     levels = distinct_problems[base_cols + ["min_token_size"]].rename(
         columns={"min_token_size": "min_token_size_adjusted"}
     )
 
-    # Pair each row with every threshold level available in its base group
     tmp = df.merge(levels, on=base_cols, how="inner")
-
-    # Keep rows where the original min_token_size is at least the adjusted level
     tmp = tmp[tmp["min_token_size"] >= tmp["min_token_size_adjusted"]]
 
-    # Within each base group + adjusted level + problem, keep the lowest original
-    # min_token_size that still satisfies the adjusted threshold
     tmp = tmp.sort_values(
         base_cols + ["min_token_size_adjusted", problem_col, "min_token_size"],
         kind="mergesort",
@@ -283,8 +271,6 @@ def add_adjusted_token_size(
     )
 
     out = tmp[tmp["row_number"] == 1].drop(columns=["row_number"]).copy()
-
-    # Replace the original min_token_size with the adjusted one
     out = out.drop(columns=["min_token_size"])
     out = out.rename(columns={"min_token_size_adjusted": "min_token_size"})
 
@@ -336,10 +322,6 @@ def get_like_for_like_problems(
     """
     Create a like-for-like dataframe across min_token_size levels.
 
-    Each problem can only contribute up to the levels at which it is actually
-    observed. This prevents comparisons that include different sets of problems
-    at different min_token_size levels.
-
     Parameters
     ----------
     df : pd.DataFrame
@@ -354,21 +336,18 @@ def get_like_for_like_problems(
     pd.DataFrame
         Like-for-like dataframe.
     """
-    # Define anchor levels: one row per base group + problem + observed min_token_size
     anchors = (
         df[base_cols + [problem_col, "min_token_size"]]
         .drop_duplicates()
         .rename(columns={"min_token_size": "anchor_min_token_size"})
     )
 
-    # Join every row to each anchor level where that problem exists
     out_like_for_like = df.merge(
         anchors,
         on=base_cols + [problem_col],
         how="inner",
     )
 
-    # Keep only rows that are valid for the anchor level
     out_like_for_like = out_like_for_like[
         out_like_for_like["min_token_size"] <= out_like_for_like["anchor_min_token_size"]
     ].copy()
@@ -383,8 +362,9 @@ def main():
     Steps
     -----
     1. Read input data
-    2. Create and save like-for-like data
-    3. Create and save adjusted-token-size data derived from the like-for-like data
+    2. Create and save adjusted data from the original input
+    3. Create and save like-for-like data from the original input
+    4. Create and save adjusted data from the like-for-like input
     """
     args = parse_args()
 
@@ -404,7 +384,21 @@ def main():
     print(f"Reading: {args.input_loc}")
     print(f"Input rows: {len(df)}")
 
-    # Step 1: create like-for-like data directly from the original dataframe
+    adjusted_df = adjusted_token_size_pipeline(
+        df=df,
+        group_cols=args.group_cols,
+        base_cols=args.base_cols,
+        problem_col=args.problem_col,
+    )
+
+    print(f"Adjusted rows: {len(adjusted_df)}")
+    print(f"Writing: {args.adjusted_save_loc}")
+    write_output(
+        df=adjusted_df,
+        save_loc=args.adjusted_save_loc,
+        overwrite=args.overwrite,
+    )
+
     like_for_like_df = get_like_for_like_problems(
         df=df,
         base_cols=args.base_cols,
@@ -419,19 +413,18 @@ def main():
         overwrite=args.overwrite,
     )
 
-    # Step 2: apply adjusted token-size transformation to the like-for-like data
-    adjusted_df = adjusted_token_size_pipeline(
+    like_for_like_adjusted_df = adjusted_token_size_pipeline(
         df=like_for_like_df,
         group_cols=args.group_cols,
         base_cols=args.base_cols,
         problem_col=args.problem_col,
     )
 
-    print(f"Adjusted rows: {len(adjusted_df)}")
-    print(f"Writing: {args.adjusted_save_loc}")
+    print(f"Like-for-like adjusted rows: {len(like_for_like_adjusted_df)}")
+    print(f"Writing: {args.like_for_like_adjusted_save_loc}")
     write_output(
-        df=adjusted_df,
-        save_loc=args.adjusted_save_loc,
+        df=like_for_like_adjusted_df,
+        save_loc=args.like_for_like_adjusted_save_loc,
         overwrite=args.overwrite,
     )
 
