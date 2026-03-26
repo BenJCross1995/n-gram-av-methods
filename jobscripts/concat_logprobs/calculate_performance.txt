@@ -1,0 +1,97 @@
+#!/bin/bash --login
+
+#SBATCH -J perf_score
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -euo pipefail
+
+# --------------------------------------------------
+# Clean out any Conda contamination
+# --------------------------------------------------
+conda deactivate 2>/dev/null || true
+
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_SHLVL
+unset XML2_CONFIG
+unset PKG_CONFIG_LIBDIR
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+
+PATH="$(echo "$PATH" | tr ':' '\n' | grep -v 'anaconda3' | paste -sd ':' -)"
+export PATH
+hash -r
+
+# --------------------------------------------------
+# Load R
+# --------------------------------------------------
+module purge
+module load apps/gcc/R/4.5.0
+
+# --------------------------------------------------
+# Paths
+# --------------------------------------------------
+PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs"
+SCRIPT_LOC="${PROJECT_DIR}/scripts/calculate_performance.R"
+
+GROUPING_COLS="data_type,corpus,scoring_model,max_context_tokens,min_token_size"
+SCORING_COLS="unknown_sum_log_probs"
+
+BY="case"
+PROGRESS="FALSE"
+SAVE_RDS="TRUE"
+
+INPUT_FILES=(
+  "combined_like_for_like_adjusted_scores_raw.rds"
+)
+
+# --------------------------------------------------
+# Run from project root so renv/activate.R is found
+# --------------------------------------------------
+cd "${PROJECT_DIR}"
+
+echo "----------------------------------------"
+echo "R: $(which R)"
+echo "Rscript: $(which Rscript)"
+echo "Working directory: $(pwd)"
+echo "----------------------------------------"
+
+# Optional quick smoke test
+Rscript -e 'if (file.exists("renv/activate.R")) source("renv/activate.R"); library(dplyr); library(purrr); library(tibble); library(writexl); library(idiolect); cat("Package load test passed\n")'
+
+for INPUT_FILE in "${INPUT_FILES[@]}"; do
+
+    INPUT_LOC="${BASE_DIR}/_results/${INPUT_FILE}"
+
+    if [[ "${INPUT_FILE}" == "completed_adj_token_size_raw.rds" ]]; then
+        SAVE_LOC_UNCALIBRATED="${BASE_DIR}/performance_uncalibrated_raw.xlsx"
+        SAVE_LOC_CALIBRATED="${BASE_DIR}/performance_calibrated_raw.xlsx"
+    elif [[ "${INPUT_FILE}" == "combined_like_for_like_adjusted_scores_raw.rds" ]]; then
+        SAVE_LOC_UNCALIBRATED="${BASE_DIR}/_results/lfl_performance_uncalibrated_raw.xlsx"
+        SAVE_LOC_CALIBRATED="${BASE_DIR}/_results/lfl_performance_calibrated_raw.xlsx"
+    else
+        echo "Unknown INPUT_FILE: ${INPUT_FILE}"
+        exit 1
+    fi
+
+    echo "--------------------------------------------------"
+    echo "Running performance scoring for:"
+    echo "INPUT_LOC=${INPUT_LOC}"
+    echo "SAVE_LOC_UNCALIBRATED=${SAVE_LOC_UNCALIBRATED}"
+    echo "SAVE_LOC_CALIBRATED=${SAVE_LOC_CALIBRATED}"
+    echo "--------------------------------------------------"
+
+    Rscript "${SCRIPT_LOC}" \
+      --input_loc "${INPUT_LOC}" \
+      --save_loc_uncalibrated "${SAVE_LOC_UNCALIBRATED}" \
+      --save_loc_calibrated "${SAVE_LOC_CALIBRATED}" \
+      --grouping_cols "${GROUPING_COLS}" \
+      --scoring_cols "${SCORING_COLS}" \
+      --by "${BY}" \
+      --progress "${PROGRESS}" \
+      --save_rds "${SAVE_RDS}"
+
+done
+
+echo "Finished successfully."
