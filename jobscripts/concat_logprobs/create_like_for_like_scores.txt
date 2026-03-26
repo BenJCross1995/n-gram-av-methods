@@ -1,0 +1,187 @@
+#!/bin/bash --login
+
+#SBATCH -J threshold_versions
+#SBATCH -t 4-0
+#SBATCH -p gpuL
+#SBATCH -G 1
+
+set -e
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs"
+SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/create_like_for_like.py"
+
+MODEL_LIST=(
+    "gpt2"
+)
+
+CORPORA=(
+    "ACL"
+    "Amazon"
+    "Enron Cleaned"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "Reddit"
+    "StackExchange"
+    "The Apricity"
+    "The Telegraph"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+DATA_TYPES=(
+    "test"
+    "training"
+)
+
+############################################
+# FILE NAMES
+############################################
+INPUT_FILE_NAME="combined_complete_results_raw.rds"
+ADJUSTED_SAVE_NAME="combined_adjusted_scores_raw.rds"
+LIKE_FOR_LIKE_SAVE_NAME="combined_like_for_like_scores_raw.rds"
+LIKE_FOR_LIKE_ADJUSTED_SAVE_NAME="combined_like_for_like_adjusted_scores_raw.rds"
+
+############################################
+# OVERWRITE SETTINGS
+############################################
+OVERWRITE_MODEL_LEVEL=true
+OVERWRITE_CORPUS_LEVEL=true
+OVERWRITE_DATA_TYPE_LEVEL=true
+OVERWRITE_OVERALL_LEVEL=true
+
+############################################
+# STEP 1: model-level files
+############################################
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+        for MODEL in "${MODEL_LIST[@]}"; do
+
+            MODEL_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}_results"
+
+            INPUT_LOC="${MODEL_LOC}/${INPUT_FILE_NAME}"
+            ADJUSTED_SAVE_LOC="${MODEL_LOC}/${ADJUSTED_SAVE_NAME}"
+            LIKE_FOR_LIKE_SAVE_LOC="${MODEL_LOC}/${LIKE_FOR_LIKE_SAVE_NAME}"
+            LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC="${MODEL_LOC}/${LIKE_FOR_LIKE_ADJUSTED_SAVE_NAME}"
+
+            if [ ! -f "${INPUT_LOC}" ]; then
+                echo "Skipping missing model-level input: ${INPUT_LOC}"
+                continue
+            fi
+
+            CMD=(
+                python -u "${SCRIPT_LOC}"
+                --input_loc "${INPUT_LOC}"
+                --adjusted_save_loc "${ADJUSTED_SAVE_LOC}"
+                --like_for_like_save_loc "${LIKE_FOR_LIKE_SAVE_LOC}"
+                --like_for_like_adjusted_save_loc "${LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC}"
+            )
+
+            if [ "${OVERWRITE_MODEL_LEVEL}" = true ]; then
+                CMD+=(--overwrite)
+            fi
+
+            "${CMD[@]}"
+        done
+    done
+done
+
+############################################
+# STEP 2: corpus-level files
+############################################
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+
+        CORPUS_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/_results"
+
+        INPUT_LOC="${CORPUS_LOC}/${INPUT_FILE_NAME}"
+        ADJUSTED_SAVE_LOC="${CORPUS_LOC}/${ADJUSTED_SAVE_NAME}"
+        LIKE_FOR_LIKE_SAVE_LOC="${CORPUS_LOC}/${LIKE_FOR_LIKE_SAVE_NAME}"
+        LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC="${CORPUS_LOC}/${LIKE_FOR_LIKE_ADJUSTED_SAVE_NAME}"
+
+        if [ ! -f "${INPUT_LOC}" ]; then
+            echo "Skipping missing corpus-level input: ${INPUT_LOC}"
+            continue
+        fi
+
+        CMD=(
+            python -u "${SCRIPT_LOC}"
+            --input_loc "${INPUT_LOC}"
+            --adjusted_save_loc "${ADJUSTED_SAVE_LOC}"
+            --like_for_like_save_loc "${LIKE_FOR_LIKE_SAVE_LOC}"
+            --like_for_like_adjusted_save_loc "${LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC}"
+        )
+
+        if [ "${OVERWRITE_CORPUS_LEVEL}" = true ]; then
+            CMD+=(--overwrite)
+        fi
+
+        "${CMD[@]}"
+    done
+done
+
+############################################
+# STEP 3: data_type-level files
+############################################
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+
+    DATA_TYPE_LOC="${BASE_LOC}/${DATA_TYPE}/_results"
+
+    INPUT_LOC="${DATA_TYPE_LOC}/${INPUT_FILE_NAME}"
+    ADJUSTED_SAVE_LOC="${DATA_TYPE_LOC}/${ADJUSTED_SAVE_NAME}"
+    LIKE_FOR_LIKE_SAVE_LOC="${DATA_TYPE_LOC}/${LIKE_FOR_LIKE_SAVE_NAME}"
+    LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC="${DATA_TYPE_LOC}/${LIKE_FOR_LIKE_ADJUSTED_SAVE_NAME}"
+
+    if [ ! -f "${INPUT_LOC}" ]; then
+        echo "Skipping missing data_type-level input: ${INPUT_LOC}"
+        continue
+    fi
+
+    CMD=(
+        python -u "${SCRIPT_LOC}"
+        --input_loc "${INPUT_LOC}"
+        --adjusted_save_loc "${ADJUSTED_SAVE_LOC}"
+        --like_for_like_save_loc "${LIKE_FOR_LIKE_SAVE_LOC}"
+        --like_for_like_adjusted_save_loc "${LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC}"
+    )
+
+    if [ "${OVERWRITE_DATA_TYPE_LEVEL}" = true ]; then
+        CMD+=(--overwrite)
+    fi
+
+    "${CMD[@]}"
+done
+
+############################################
+# STEP 4: overall-level file
+############################################
+INPUT_LOC="${BASE_LOC}/_results/${INPUT_FILE_NAME}"
+ADJUSTED_SAVE_LOC="${BASE_LOC}/_results/${ADJUSTED_SAVE_NAME}"
+LIKE_FOR_LIKE_SAVE_LOC="${BASE_LOC}/_results/${LIKE_FOR_LIKE_SAVE_NAME}"
+LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC="${BASE_LOC}/_results/${LIKE_FOR_LIKE_ADJUSTED_SAVE_NAME}"
+
+if [ ! -f "${INPUT_LOC}" ]; then
+    echo "Skipping missing overall-level input: ${INPUT_LOC}"
+else
+    CMD=(
+        python -u "${SCRIPT_LOC}"
+        --input_loc "${INPUT_LOC}"
+        --adjusted_save_loc "${ADJUSTED_SAVE_LOC}"
+        --like_for_like_save_loc "${LIKE_FOR_LIKE_SAVE_LOC}"
+        --like_for_like_adjusted_save_loc "${LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC}"
+    )
+
+    if [ "${OVERWRITE_OVERALL_LEVEL}" = true ]; then
+        CMD+=(--overwrite)
+    fi
+
+    "${CMD[@]}"
+fi
+
+echo "Finished successfully."
