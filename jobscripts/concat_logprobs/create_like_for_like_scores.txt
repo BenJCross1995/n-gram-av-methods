@@ -63,7 +63,7 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     for CORPUS in "${CORPORA[@]}"; do
         for MODEL in "${MODEL_LIST[@]}"; do
 
-            MODEL_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}_results"
+            MODEL_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/_results"
 
             INPUT_LOC="${MODEL_LOC}/${INPUT_FILE_NAME}"
             ADJUSTED_SAVE_LOC="${MODEL_LOC}/${ADJUSTED_SAVE_NAME}"
