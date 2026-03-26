@@ -31,7 +31,7 @@ module load apps/gcc/R/4.5.0
 # Paths
 # --------------------------------------------------
 PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
-BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs/test/_results"
+BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs/_results"
 SCRIPT_LOC="${PROJECT_DIR}/scripts/calculate_performance.R"
 
 GROUPING_COLS="data_type,corpus,scoring_model,max_context_tokens,min_token_size"
