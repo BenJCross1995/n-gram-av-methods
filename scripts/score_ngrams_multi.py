@@ -5,15 +5,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-FIXED_NUM_TOKENS = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
-
-FIXED_NUM_TOKENS_DETAILED = [
-    10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+FIXED_NUM_TOKENS = [
+    5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
     200, 300, 400, 500, 600, 700, 800, 900, 1000
-]
-
-FIXED_NUM_TOKENS_DETAILED = [
-    10, 20, 30, 40, 50, 60, 70, 80, 90, 100
 ]
 
 def parse_args():
@@ -99,7 +93,7 @@ def main():
     # Only pass completed_loc if provided
     has_completed = bool(args.completed_loc)
 
-    for nt in FIXED_NUM_TOKENS_DETAILED:
+    for nt in FIXED_NUM_TOKENS:
         save_loc_nt = with_suffix_dir(args.save_loc, nt)
         completed_loc_nt = with_suffix_dir(args.completed_loc, nt) if has_completed else None
 
