@@ -78,7 +78,7 @@ COMPLETE_ONLY=true
 # OVERWRITE SETTINGS
 ############################################
 # STEP 1: combine xlsx files within raw/raw_10/etc folders
-OVERWRITE_STEP1=false
+OVERWRITE_STEP1=true
 # STEP 2: combine raw-level RDS files to model-level
 OVERWRITE_STEP2=true
 # STEP 3: combine model-level RDS files to corpus-level
