@@ -42,9 +42,14 @@ DATA_TYPES=(
     "training"
 )
 
+DATA_TYPES=(
+    "test"
+)
+
 # raw/raw_10/raw_20/etc folders inside each model directory
 RAW_DIRS=(
     "raw"
+    "raw_5"
     "raw_10"
     "raw_20"
     "raw_30"
