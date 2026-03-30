@@ -45,6 +45,10 @@ INPUT_FILES=(
   "combined_like_for_like_adjusted_scores_raw.rds"
 )
 
+INPUT_FILES=(
+  "combined_adjusted_scores_raw.rds"
+)
+
 # --------------------------------------------------
 # Run from project root so renv/activate.R is found
 # --------------------------------------------------
@@ -63,7 +67,7 @@ for INPUT_FILE in "${INPUT_FILES[@]}"; do
 
     INPUT_LOC="${BASE_DIR}/${INPUT_FILE}"
 
-    if [[ "${INPUT_FILE}" == "completed_adj_token_size_raw.rds" ]]; then
+    if [[ "${INPUT_FILE}" == "combined_adjusted_scores_raw.rds" ]]; then
         SAVE_LOC_UNCALIBRATED="${BASE_DIR}/performance_uncalibrated_raw.xlsx"
         SAVE_LOC_CALIBRATED="${BASE_DIR}/performance_calibrated_raw.xlsx"
     elif [[ "${INPUT_FILE}" == "combined_like_for_like_adjusted_scores_raw.rds" ]]; then
