@@ -42,11 +42,10 @@ PROGRESS="FALSE"
 SAVE_RDS="TRUE"
 
 INPUT_FILES=(
-  "combined_like_for_like_adjusted_scores_raw.rds"
-)
-
-INPUT_FILES=(
+  "combined_complete_results_raw.rds"
   "combined_adjusted_scores_raw.rds"
+  "combined_like_for_like_scores_raw.rds"
+  "combined_like_for_like_adjusted_scores_raw.rds"
 )
 
 # --------------------------------------------------
@@ -67,12 +66,22 @@ for INPUT_FILE in "${INPUT_FILES[@]}"; do
 
     INPUT_LOC="${BASE_DIR}/${INPUT_FILE}"
 
-    if [[ "${INPUT_FILE}" == "combined_adjusted_scores_raw.rds" ]]; then
+    if [[ "${INPUT_FILE}" == "combined_complete_results_raw.rds" ]]; then
         SAVE_LOC_UNCALIBRATED="${BASE_DIR}/performance_uncalibrated_raw.xlsx"
         SAVE_LOC_CALIBRATED="${BASE_DIR}/performance_calibrated_raw.xlsx"
-    elif [[ "${INPUT_FILE}" == "combined_like_for_like_adjusted_scores_raw.rds" ]]; then
+
+    elif [[ "${INPUT_FILE}" == "combined_adjusted_scores_raw.rds" ]]; then
+        SAVE_LOC_UNCALIBRATED="${BASE_DIR}/performance_adj_uncalibrated_raw.xlsx"
+        SAVE_LOC_CALIBRATED="${BASE_DIR}/performance_adj_calibrated_raw.xlsx"
+
+    elif [[ "${INPUT_FILE}" == "combined_like_for_like_scores_raw.rds" ]]; then
         SAVE_LOC_UNCALIBRATED="${BASE_DIR}/lfl_performance_uncalibrated_raw.xlsx"
         SAVE_LOC_CALIBRATED="${BASE_DIR}/lfl_performance_calibrated_raw.xlsx"
+
+    elif [[ "${INPUT_FILE}" == "combined_like_for_like_adjusted_scores_raw.rds" ]]; then
+        SAVE_LOC_UNCALIBRATED="${BASE_DIR}/lfl_performance_adj_uncalibrated_raw.xlsx"
+        SAVE_LOC_CALIBRATED="${BASE_DIR}/lfl_performance_adj_calibrated_raw.xlsx"
+
     else
         echo "Unknown INPUT_FILE: ${INPUT_FILE}"
         exit 1
