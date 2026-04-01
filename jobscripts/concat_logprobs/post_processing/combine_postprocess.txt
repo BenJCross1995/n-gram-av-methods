@@ -7,7 +7,7 @@
 #SBATCH --mem=64G
 #SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.out
 #SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.err
-
+ 
 set -euo pipefail
 
 SCRIPT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/jobscripts/concat_logprobs/post_processing"
