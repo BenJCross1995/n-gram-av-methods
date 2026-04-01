@@ -40,6 +40,7 @@ SCORING_COLS="unknown_sum_log_probs"
 BY="case"
 PROGRESS="FALSE"
 SAVE_RDS="TRUE"
+CALCULATE_UNCALIBRATED="TRUE"
 
 INPUT_FILES=(
   "combined_complete_results_raw.rds"
@@ -92,6 +93,7 @@ for INPUT_FILE in "${INPUT_FILES[@]}"; do
     echo "INPUT_LOC=${INPUT_LOC}"
     echo "SAVE_LOC_UNCALIBRATED=${SAVE_LOC_UNCALIBRATED}"
     echo "SAVE_LOC_CALIBRATED=${SAVE_LOC_CALIBRATED}"
+    echo "CALCULATE_UNCALIBRATED=${CALCULATE_UNCALIBRATED}"
     echo "--------------------------------------------------"
 
     Rscript "${SCRIPT_LOC}" \
@@ -102,7 +104,8 @@ for INPUT_FILE in "${INPUT_FILES[@]}"; do
       --scoring_cols "${SCORING_COLS}" \
       --by "${BY}" \
       --progress "${PROGRESS}" \
-      --save_rds "${SAVE_RDS}"
+      --save_rds "${SAVE_RDS}" \
+      --calculate_uncalibrated "${CALCULATE_UNCALIBRATED}"
 
 done
 

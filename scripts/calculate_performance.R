@@ -157,15 +157,10 @@ score_grouped_performance <- function(
     message("Running uncalibrated scoring for: ", score_col)
 
     completed_df %>%
-      # Keep only the columns needed for this scoring run
       dplyr::select(dplyr::all_of(c(grouping_cols, "target", score_col))) %>%
-      # Remove rows with missing target or score
       dplyr::filter(!is.na(.data[[score_col]]), !is.na(target)) %>%
-      # Rename the active scoring column to "score" for idiolect::performance()
       dplyr::rename(score = !!score_col) %>%
-      # Group by the requested grouping columns
       dplyr::group_by(dplyr::across(dplyr::all_of(grouping_cols))) %>%
-      # Compute performance within each group
       dplyr::group_modify(function(.x, .y) {
 
         perf <- tryCatch(
@@ -185,13 +180,10 @@ score_grouped_performance <- function(
           }
         )
 
-        # If performance failed or returned no evaluation, skip this group
         if (is.null(perf) || is.null(perf$evaluation) || nrow(perf$evaluation) == 0) {
           return(tibble::tibble())
         }
 
-        # group_modify automatically re-attaches grouping columns, so only return
-        # the new columns here
         dplyr::bind_cols(
           tibble::tibble(scoring_col = score_col),
           tibble::as_tibble(perf$evaluation)
@@ -239,31 +231,26 @@ score_grouped_calibrated_performance <- function(
   scoring_cols,
   progress = FALSE
 ) {
-  # Ensure data_type exists
   if (!"data_type" %in% names(completed_df)) {
     stop("completed_df must contain a 'data_type' column", call. = FALSE)
   }
 
-  # Ensure both training and test are present
   if (!all(c("training", "test") %in% unique(completed_df$data_type))) {
     stop("completed_df$data_type must contain both 'training' and 'test'", call. = FALSE)
   }
 
-  # Matching should be done on grouping columns excluding data_type
   match_cols <- setdiff(grouping_cols, "data_type")
 
   if (length(match_cols) == 0) {
     stop("After excluding 'data_type', no grouping columns remain for matching", call. = FALSE)
   }
 
-  # Split the full data into training and test subsets
   training_df <- completed_df %>%
     dplyr::filter(data_type == "training")
 
   test_df <- completed_df %>%
     dplyr::filter(data_type == "test")
 
-  # Determine which groups exist in BOTH training and test
   matched_groups <- training_df %>%
     dplyr::distinct(dplyr::across(dplyr::all_of(match_cols))) %>%
     dplyr::inner_join(
@@ -277,27 +264,23 @@ score_grouped_calibrated_performance <- function(
 
     message("Running calibrated scoring for: ", score_col)
 
-    # Prepare training subset for this score column
     training_sub <- training_df %>%
       dplyr::inner_join(matched_groups, by = match_cols) %>%
       dplyr::select(dplyr::all_of(c(match_cols, "target", score_col))) %>%
       dplyr::filter(!is.na(.data[[score_col]]), !is.na(target)) %>%
       dplyr::rename(score = !!score_col)
 
-    # Prepare test subset for this score column
     test_sub <- test_df %>%
       dplyr::inner_join(matched_groups, by = match_cols) %>%
       dplyr::select(dplyr::all_of(c(match_cols, "target", score_col))) %>%
       dplyr::filter(!is.na(.data[[score_col]]), !is.na(target)) %>%
       dplyr::rename(score = !!score_col)
 
-    # Turn each row of matched_groups into a separate group definition
     group_list <- matched_groups %>%
       split(seq_len(nrow(.)))
 
     purrr::map_dfr(group_list, function(group_row) {
 
-      # Pull the relevant rows for this matched group from training and test
       train_group <- training_sub %>%
         dplyr::semi_join(group_row, by = match_cols)
 
@@ -321,12 +304,10 @@ score_grouped_calibrated_performance <- function(
         }
       )
 
-      # If performance failed or returned no evaluation, skip this group
       if (is.null(perf) || is.null(perf$evaluation) || nrow(perf$evaluation) == 0) {
         return(tibble::tibble())
       }
 
-      # Bind group info + score column name + evaluation metrics
       dplyr::bind_cols(
         tibble::as_tibble(group_row),
         tibble::tibble(scoring_col = score_col),
@@ -344,6 +325,7 @@ score_grouped_calibrated_performance <- function(
 # Expected command-line arguments:
 #   --input_loc                Path to input .rds file
 #   --save_loc_uncalibrated    Path to save uncalibrated .xlsx output
+#                              Required only if --calculate_uncalibrated TRUE
 #   --save_loc_calibrated      Path to save calibrated .xlsx output
 #   --grouping_cols            Comma-separated grouping columns
 #   --scoring_cols             Comma-separated scoring columns
@@ -351,6 +333,8 @@ score_grouped_calibrated_performance <- function(
 #   --progress                 Optional TRUE/FALSE
 #   --save_rds                 Optional TRUE/FALSE; if TRUE, also save .rds
 #                              files alongside the .xlsx outputs
+#   --calculate_uncalibrated   Optional TRUE/FALSE; if FALSE, skip the
+#                              uncalibrated stage entirely
 #
 # Returns:
 #   Invisible NULL.
@@ -358,12 +342,21 @@ score_grouped_calibrated_performance <- function(
 main <- function() {
   args <- parse_args()
 
-  # Required file arguments
   input_loc <- require_arg(args, "input_loc")
-  save_loc_uncalibrated <- require_arg(args, "save_loc_uncalibrated")
   save_loc_calibrated <- require_arg(args, "save_loc_calibrated")
 
-  # Optional grouping/scoring arguments with defaults
+  calculate_uncalibrated <- if (!is.null(args$calculate_uncalibrated)) {
+    as.logical(args$calculate_uncalibrated)
+  } else {
+    TRUE
+  }
+
+  save_loc_uncalibrated <- if (isTRUE(calculate_uncalibrated)) {
+    require_arg(args, "save_loc_uncalibrated")
+  } else {
+    args$save_loc_uncalibrated
+  }
+
   grouping_cols <- if (!is.null(args$grouping_cols)) {
     split_csv(args$grouping_cols)
   } else {
@@ -371,37 +364,32 @@ main <- function() {
       "data_type",
       "corpus",
       "scoring_model",
-      "min_token_size",
-      "weight",
-      "alpha",
-      "base"
+      "max_context_tokens",
+      "min_token_size"
     )
   }
 
   scoring_cols <- if (!is.null(args$scoring_cols)) {
     split_csv(args$scoring_cols)
   } else {
-    c("simpson_score", "jaccard_score")
+    c("unknown_sum_log_probs")
   }
 
-  # Optional idiolect arguments
   by <- if (!is.null(args$by)) args$by else "case"
   progress <- if (!is.null(args$progress)) as.logical(args$progress) else FALSE
   save_rds <- if (!is.null(args$save_rds)) as.logical(args$save_rds) else FALSE
 
-  # Read input
   message("Reading input file: ", input_loc)
   completed_df <- readRDS(input_loc)
 
-  # Print useful diagnostics for SLURM logs
   message("Input shape: ", paste(dim(completed_df), collapse = " x "))
   message("Grouping columns: ", paste(grouping_cols, collapse = ", "))
   message("Scoring columns: ", paste(scoring_cols, collapse = ", "))
   message("by = ", by)
   message("progress = ", progress)
   message("save_rds = ", save_rds)
+  message("calculate_uncalibrated = ", calculate_uncalibrated)
 
-  # Validate required columns exist
   missing_group_cols <- setdiff(grouping_cols, names(completed_df))
   missing_score_cols <- setdiff(c("target", scoring_cols), names(completed_df))
 
@@ -424,24 +412,28 @@ main <- function() {
   # --------------------------------------------------------------------------
   # Stage 1: Uncalibrated performance
   # --------------------------------------------------------------------------
-  message("Starting uncalibrated performance...")
+  if (isTRUE(calculate_uncalibrated)) {
+    message("Starting uncalibrated performance...")
 
-  performance_df <- score_grouped_performance(
-    completed_df = completed_df,
-    grouping_cols = grouping_cols,
-    scoring_cols = scoring_cols,
-    by = by,
-    progress = progress
-  )
+    performance_df <- score_grouped_performance(
+      completed_df = completed_df,
+      grouping_cols = grouping_cols,
+      scoring_cols = scoring_cols,
+      by = by,
+      progress = progress
+    )
 
-  message("Uncalibrated output shape: ", paste(dim(performance_df), collapse = " x "))
-  message("Saving uncalibrated output to: ", save_loc_uncalibrated)
+    message("Uncalibrated output shape: ", paste(dim(performance_df), collapse = " x "))
+    message("Saving uncalibrated output to: ", save_loc_uncalibrated)
 
-  save_df_outputs(
-    df = performance_df,
-    save_loc = save_loc_uncalibrated,
-    save_rds = save_rds
-  )
+    save_df_outputs(
+      df = performance_df,
+      save_loc = save_loc_uncalibrated,
+      save_rds = save_rds
+    )
+  } else {
+    message("Skipping uncalibrated performance because calculate_uncalibrated = FALSE")
+  }
 
   # --------------------------------------------------------------------------
   # Stage 2: Calibrated performance
