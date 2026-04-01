@@ -41,6 +41,7 @@ DATA_TYPES=(
 
 RAW_DIRS=(
     "raw"
+    "raw_0"
     "raw_5"
     "raw_10"
     "raw_20"
@@ -96,9 +97,9 @@ SAVE_RDS="TRUE"
 # Array throttles
 # Tune these to match current cluster pressure / fair use.
 # --------------------------------------------------
-COMBINE_ARRAY_MAX_CONCURRENT=24
-LFL_ARRAY_MAX_CONCURRENT=24
-PERFORMANCE_ARRAY_MAX_CONCURRENT=8
+COMBINE_ARRAY_MAX_CONCURRENT=40
+LFL_ARRAY_MAX_CONCURRENT=40
+PERFORMANCE_ARRAY_MAX_CONCURRENT=40
 
 # --------------------------------------------------
 # Paths for generated task files and logs
