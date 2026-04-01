@@ -188,7 +188,10 @@ def score_ngrams_to_df(
         )
 
         for i, (prefix, tok_span) in enumerate(zip(prefixes, token_spans), start=1):
-            if num_tokens is not None:
+            if num_tokens == 0:
+                occ_text = tokens_to_text(phrase_tokens, tokenizer)
+                effective_use_bos = True
+            elif num_tokens is not None:
                 occ_text = get_trimmed_context_before_span(
                     tokens=tokenized_text,
                     token_span=tok_span,
@@ -196,8 +199,10 @@ def score_ngrams_to_df(
                     return_text=True,
                     tokenizer=tokenizer,
                 )
+                effective_use_bos = use_bos
             else:
                 occ_text = prefix
+                effective_use_bos = use_bos
 
             res = score_ngrams(
                 ngram=phrase_tokens,
@@ -205,7 +210,7 @@ def score_ngrams_to_df(
                 tokenizer=tokenizer,
                 text=occ_text,
                 lowercase=lowercase,
-                use_bos=use_bos,
+                use_bos=effective_use_bos,
             )
 
             rows.append({
