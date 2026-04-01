@@ -54,9 +54,6 @@ OUTPUT_FILE_NAMES=(
 
 echo "Starting like-for-like post-processing (steps 2-4)"
 
-# --------------------------------------------------
-# Step 2: model-level outputs -> corpus-level outputs
-# --------------------------------------------------
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
     for CORPUS in "${CORPORA[@]}"; do
         CORPUS_RESULTS_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/_results"
@@ -76,9 +73,6 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     done
 done
 
-# --------------------------------------------------
-# Step 3: corpus-level outputs -> data_type-level outputs
-# --------------------------------------------------
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
     DATA_TYPE_RESULTS_LOC="${BASE_LOC}/${DATA_TYPE}/_results"
     mkdir -p "${DATA_TYPE_RESULTS_LOC}"
@@ -96,9 +90,6 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     done
 done
 
-# --------------------------------------------------
-# Step 4: data_type-level outputs -> overall-level outputs
-# --------------------------------------------------
 OVERALL_RESULTS_LOC="${BASE_LOC}/_results"
 mkdir -p "${OVERALL_RESULTS_LOC}"
 

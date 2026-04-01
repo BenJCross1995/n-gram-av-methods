@@ -1,0 +1,61 @@
+#!/bin/bash --login
+
+#SBATCH -J lfl_launch
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.err
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/csf3_postprocessing_config.txt"
+
+LFL_TASK_FILE="${TASK_DIR}/lfl_step1_tasks.tsv"
+: > "${LFL_TASK_FILE}"
+
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+        for MODEL in "${MODEL_LIST[@]}"; do
+            INPUT_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/_results/combined_complete_results_raw.rds"
+            [[ -f "${INPUT_LOC}" ]] || continue
+            printf '%s\t%s\t%s\n' "${DATA_TYPE}" "${CORPUS}" "${MODEL}" >> "${LFL_TASK_FILE}"
+        done
+    done
+done
+
+LFL_TASKS=$(wc -l < "${LFL_TASK_FILE}" | tr -d ' ')
+echo "Like-for-like step 1 tasks: ${LFL_TASKS}"
+
+if [[ "${LFL_TASKS}" -gt 0 ]]; then
+    LFL_STEP1_JOB_ID=$(sbatch \
+        --parsable \
+        --array="1-${LFL_TASKS}%${LFL_ARRAY_MAX_CONCURRENT}" \
+        --export=ALL,TASK_FILE="${LFL_TASK_FILE}" \
+        "${SCRIPT_DIR}/lfl_step1_array.txt")
+
+    echo "Submitted like-for-like step 1 array: ${LFL_STEP1_JOB_ID}"
+
+    LFL_POST_JOB_ID=$(sbatch \
+        --parsable \
+        --dependency="afterok:${LFL_STEP1_JOB_ID}" \
+        "${SCRIPT_DIR}/lfl_postprocess.txt")
+else
+    echo "No like-for-like step 1 tasks found; submitting like-for-like post-process directly."
+
+    LFL_POST_JOB_ID=$(sbatch \
+        --parsable \
+        "${SCRIPT_DIR}/lfl_postprocess.txt")
+fi
+
+echo "Submitted like-for-like post-process job: ${LFL_POST_JOB_ID}"
+
+PERF_LAUNCH_JOB_ID=$(sbatch \
+    --parsable \
+    --dependency="afterok:${LFL_POST_JOB_ID}" \
+    "${SCRIPT_DIR}/launch_performance_array.txt")
+
+echo "Submitted performance launcher job: ${PERF_LAUNCH_JOB_ID}"
+echo "Task file: ${LFL_TASK_FILE}"

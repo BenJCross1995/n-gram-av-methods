@@ -1,20 +1,21 @@
 #!/bin/bash --login
 
+#SBATCH -J postproc_submit
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.err
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/csf3_postprocessing_config.txt"
 
 COMBINE_TASK_FILE="${TASK_DIR}/combine_step1_tasks.tsv"
-LFL_TASK_FILE="${TASK_DIR}/lfl_step1_tasks.tsv"
-
-mkdir -p "${TASK_DIR}" "${LOG_DIR}"
-
-# --------------------------------------------------
-# Build task list for combine step 1
-# One task per existing DATA_TYPE / CORPUS / MODEL / RAW_DIR directory.
-# --------------------------------------------------
 : > "${COMBINE_TASK_FILE}"
+
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
     for CORPUS in "${CORPORA[@]}"; do
         for MODEL in "${MODEL_LIST[@]}"; do
@@ -33,28 +34,6 @@ done
 COMBINE_TASKS=$(wc -l < "${COMBINE_TASK_FILE}" | tr -d ' ')
 echo "Combine step 1 tasks: ${COMBINE_TASKS}"
 
-# --------------------------------------------------
-# Build task list for like-for-like step 1
-# One task per existing model-level combined file.
-# --------------------------------------------------
-: > "${LFL_TASK_FILE}"
-for DATA_TYPE in "${DATA_TYPES[@]}"; do
-    for CORPUS in "${CORPORA[@]}"; do
-        for MODEL in "${MODEL_LIST[@]}"; do
-            INPUT_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/_results/combined_complete_results_raw.rds"
-            [[ -f "${INPUT_LOC}" ]] || continue
-            printf '%s\t%s\t%s\n' "${DATA_TYPE}" "${CORPUS}" "${MODEL}" >> "${LFL_TASK_FILE}"
-        done
-    done
-done
-
-LFL_TASKS=$(wc -l < "${LFL_TASK_FILE}" | tr -d ' ')
-echo "Like-for-like step 1 tasks: ${LFL_TASKS}"
-
-# --------------------------------------------------
-# Submit combine pipeline
-# --------------------------------------------------
-COMBINE_DEP_ARGS=()
 if [[ "${COMBINE_TASKS}" -gt 0 ]]; then
     COMBINE_STEP1_JOB_ID=$(sbatch \
         --parsable \
@@ -63,63 +42,32 @@ if [[ "${COMBINE_TASKS}" -gt 0 ]]; then
         "${SCRIPT_DIR}/combine_step1_array.txt")
 
     echo "Submitted combine step 1 array: ${COMBINE_STEP1_JOB_ID}"
-    COMBINE_DEP_ARGS=(--dependency="afterok:${COMBINE_STEP1_JOB_ID}")
-else
-    echo "No combine step 1 tasks found; combine post-process will run directly."
-fi
 
-COMBINE_POST_JOB_ID=$(sbatch \
-    --parsable \
-    "${COMBINE_DEP_ARGS[@]}" \
-    "${SCRIPT_DIR}/combine_postprocess.txt")
+    COMBINE_POST_JOB_ID=$(sbatch \
+        --parsable \
+        --dependency="afterok:${COMBINE_STEP1_JOB_ID}" \
+        "${SCRIPT_DIR}/combine_postprocess.txt")
+else
+    echo "No combine step 1 tasks found; submitting combine post-process directly."
+
+    COMBINE_POST_JOB_ID=$(sbatch \
+        --parsable \
+        "${SCRIPT_DIR}/combine_postprocess.txt")
+fi
 
 echo "Submitted combine post-process job: ${COMBINE_POST_JOB_ID}"
 
-# --------------------------------------------------
-# Submit like-for-like pipeline (waits for combine post-process)
-# --------------------------------------------------
-LFL_DEP_ARGS=(--dependency="afterok:${COMBINE_POST_JOB_ID}")
-
-if [[ "${LFL_TASKS}" -gt 0 ]]; then
-    LFL_STEP1_JOB_ID=$(sbatch \
-        --parsable \
-        "${LFL_DEP_ARGS[@]}" \
-        --array="1-${LFL_TASKS}%${LFL_ARRAY_MAX_CONCURRENT}" \
-        --export=ALL,TASK_FILE="${LFL_TASK_FILE}" \
-        "${SCRIPT_DIR}/lfl_step1_array.txt")
-
-    echo "Submitted like-for-like step 1 array: ${LFL_STEP1_JOB_ID}"
-    LFL_POST_DEP_ARGS=(--dependency="afterok:${LFL_STEP1_JOB_ID}")
-else
-    echo "No like-for-like step 1 tasks found; like-for-like post-process will run after combine post-process."
-    LFL_POST_DEP_ARGS=(--dependency="afterok:${COMBINE_POST_JOB_ID}")
-fi
-
-LFL_POST_JOB_ID=$(sbatch \
+LFL_LAUNCH_JOB_ID=$(sbatch \
     --parsable \
-    "${LFL_POST_DEP_ARGS[@]}" \
-    "${SCRIPT_DIR}/lfl_postprocess.txt")
+    --dependency="afterok:${COMBINE_POST_JOB_ID}" \
+    "${SCRIPT_DIR}/launch_lfl_pipeline.txt")
 
-echo "Submitted like-for-like post-process job: ${LFL_POST_JOB_ID}"
-
-# --------------------------------------------------
-# Submit performance launcher after like-for-like post-process.
-# It discovers current combined*_raw.rds files at runtime so any new
-# combined output automatically becomes its own array task.
-# --------------------------------------------------
-PERF_LAUNCH_JOB_ID=$(sbatch \
-    --parsable \
-    --dependency="afterok:${LFL_POST_JOB_ID}" \
-    "${SCRIPT_DIR}/launch_performance_array.txt")
-
-echo "Submitted performance launcher job: ${PERF_LAUNCH_JOB_ID}"
+echo "Submitted like-for-like launcher job: ${LFL_LAUNCH_JOB_ID}"
 
 echo
 echo "Submission summary"
 echo "  combine_postprocess : ${COMBINE_POST_JOB_ID}"
-echo "  lfl_postprocess     : ${LFL_POST_JOB_ID}"
-echo "  perf_launcher       : ${PERF_LAUNCH_JOB_ID}"
+echo "  lfl_launcher        : ${LFL_LAUNCH_JOB_ID}"
 echo
 echo "Task files"
 echo "  ${COMBINE_TASK_FILE}"
-echo "  ${LFL_TASK_FILE}"

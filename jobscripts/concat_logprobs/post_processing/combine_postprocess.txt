@@ -52,9 +52,6 @@ run_combine_rds() {
 
 echo "Starting combine post-processing (steps 2-5)"
 
-# --------------------------------------------------
-# Step 2: raw-level RDS -> model-level RDS
-# --------------------------------------------------
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
     for CORPUS in "${CORPORA[@]}"; do
         for MODEL in "${MODEL_LIST[@]}"; do
@@ -78,9 +75,6 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     done
 done
 
-# --------------------------------------------------
-# Step 3: model-level RDS -> corpus-level RDS
-# --------------------------------------------------
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
     for CORPUS in "${CORPORA[@]}"; do
         CORPUS_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}"
@@ -101,9 +95,6 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     done
 done
 
-# --------------------------------------------------
-# Step 4: corpus-level RDS -> data_type-level RDS
-# --------------------------------------------------
 for DATA_TYPE in "${DATA_TYPES[@]}"; do
     DATA_TYPE_LOC="${BASE_LOC}/${DATA_TYPE}"
     SAVE_LOC="${DATA_TYPE_LOC}/_results/combined_complete_results_raw.rds"
@@ -122,9 +113,6 @@ for DATA_TYPE in "${DATA_TYPES[@]}"; do
     run_combine_rds data_type "${SAVE_LOC}" "${COMBINE_OVERWRITE_STEP4}" "${INPUT_FILES[@]}"
 done
 
-# --------------------------------------------------
-# Step 5: data_type-level RDS -> overall-level RDS
-# --------------------------------------------------
 SAVE_LOC="${BASE_LOC}/_results/combined_complete_results_raw.rds"
 INPUT_FILES=()
 for DATA_TYPE in "${DATA_TYPES[@]}"; do

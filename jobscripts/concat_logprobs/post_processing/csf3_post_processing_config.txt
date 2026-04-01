@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# --------------------------------------------------
-# Shared configuration for CSF3 post-processing jobs
-# --------------------------------------------------
-
 BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs"
 PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
 
@@ -70,9 +66,6 @@ SHEET_NAMES=(
 
 COMPLETE_ONLY=true
 
-# --------------------------------------------------
-# Overwrite controls
-# --------------------------------------------------
 COMBINE_OVERWRITE_STEP1=true
 COMBINE_OVERWRITE_STEP2=true
 COMBINE_OVERWRITE_STEP3=true
@@ -84,26 +77,16 @@ LFL_OVERWRITE_CORPUS_LEVEL=true
 LFL_OVERWRITE_DATA_TYPE_LEVEL=true
 LFL_OVERWRITE_OVERALL_LEVEL=true
 
-# --------------------------------------------------
-# Performance settings
-# --------------------------------------------------
 GROUPING_COLS="data_type,corpus,scoring_model,max_context_tokens,min_token_size"
 SCORING_COLS="unknown_sum_log_probs"
 BY="case"
 PROGRESS="FALSE"
 SAVE_RDS="TRUE"
 
-# --------------------------------------------------
-# Array throttles
-# Tune these to match current cluster pressure / fair use.
-# --------------------------------------------------
-COMBINE_ARRAY_MAX_CONCURRENT=40
-LFL_ARRAY_MAX_CONCURRENT=40
-PERFORMANCE_ARRAY_MAX_CONCURRENT=40
+COMBINE_ARRAY_MAX_CONCURRENT=24
+LFL_ARRAY_MAX_CONCURRENT=24
+PERFORMANCE_ARRAY_MAX_CONCURRENT=8
 
-# --------------------------------------------------
-# Paths for generated task files and logs
-# --------------------------------------------------
 TASK_DIR="${BASE_LOC}/_results/slurm_task_lists"
 LOG_DIR="${PROJECT_DIR}/slurm_logs/postprocessing"
 
