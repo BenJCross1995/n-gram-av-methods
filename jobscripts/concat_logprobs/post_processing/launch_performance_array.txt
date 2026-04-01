@@ -1,0 +1,40 @@
+#!/bin/bash --login
+
+#SBATCH -J perf_launch
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.err
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/csf3_postprocessing_config.txt"
+
+PERF_TASK_FILE="${TASK_DIR}/performance_tasks.txt"
+find "${BASE_LOC}/_results" \
+    -maxdepth 1 \
+    -type f \
+    -name 'combined*_raw.rds' \
+    | sort > "${PERF_TASK_FILE}"
+
+NUM_TASKS=$(wc -l < "${PERF_TASK_FILE}" | tr -d ' ')
+
+echo "Discovered ${NUM_TASKS} performance input file(s)."
+cat "${PERF_TASK_FILE}" || true
+
+if [[ "${NUM_TASKS}" -eq 0 ]]; then
+    echo "No performance inputs found in ${BASE_LOC}/_results. Nothing to submit."
+    exit 0
+fi
+
+PERF_JOB_ID=$(sbatch \
+    --parsable \
+    --array="1-${NUM_TASKS}%${PERFORMANCE_ARRAY_MAX_CONCURRENT}" \
+    --export=ALL,TASK_FILE="${PERF_TASK_FILE}" \
+    "${SCRIPT_DIR}/performance_array.txt")
+
+echo "Submitted performance array job: ${PERF_JOB_ID}"
+echo "Task file: ${PERF_TASK_FILE}"

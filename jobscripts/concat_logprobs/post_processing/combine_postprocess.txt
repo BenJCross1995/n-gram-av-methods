@@ -1,0 +1,137 @@
+#!/bin/bash --login
+
+#SBATCH -J combine_post
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A.err
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/csf3_postprocessing_config.txt"
+
+load_python_env
+
+run_combine_rds() {
+    local combine_level="$1"
+    local save_loc="$2"
+    local overwrite_flag="$3"
+    shift 3
+    local input_files=("$@")
+
+    if [[ "${#input_files[@]}" -eq 0 ]]; then
+        echo "No input files for ${combine_level} -> ${save_loc}; skipping"
+        return 0
+    fi
+
+    local cmd=(
+        python -u "${PYTHON_COMBINE_SCRIPT}"
+        --mode combine_rds
+        --combine_level "${combine_level}"
+        --save_loc "${save_loc}"
+        --input_files "${input_files[@]}"
+    )
+
+    if [[ "${overwrite_flag}" == true ]]; then
+        cmd+=(--overwrite)
+    fi
+
+    if [[ "${COMPLETE_ONLY}" == true ]]; then
+        cmd+=(--complete_only)
+    fi
+
+    echo "Combining level=${combine_level}"
+    echo "  SAVE_LOC=${save_loc}"
+    printf '  INPUT=%s\n' "${input_files[@]}"
+
+    "${cmd[@]}"
+}
+
+echo "Starting combine post-processing (steps 2-5)"
+
+# --------------------------------------------------
+# Step 2: raw-level RDS -> model-level RDS
+# --------------------------------------------------
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+        for MODEL in "${MODEL_LIST[@]}"; do
+            MODEL_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}"
+            RAW_RESULTS_DIR="${MODEL_LOC}/raw_results"
+            SAVE_LOC="${MODEL_LOC}/_results/combined_complete_results_raw.rds"
+
+            if [[ ! -d "${RAW_RESULTS_DIR}" ]]; then
+                echo "Skipping missing raw_results directory: ${RAW_RESULTS_DIR}"
+                continue
+            fi
+
+            INPUT_FILES=()
+            for RAW_DIR in "${RAW_DIRS[@]}"; do
+                FILE="${RAW_RESULTS_DIR}/${RAW_DIR}_complete_results.rds"
+                [[ -f "${FILE}" ]] && INPUT_FILES+=("${FILE}")
+            done
+
+            run_combine_rds model "${SAVE_LOC}" "${COMBINE_OVERWRITE_STEP2}" "${INPUT_FILES[@]}"
+        done
+    done
+done
+
+# --------------------------------------------------
+# Step 3: model-level RDS -> corpus-level RDS
+# --------------------------------------------------
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+        CORPUS_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}"
+        SAVE_LOC="${CORPUS_LOC}/_results/combined_complete_results_raw.rds"
+
+        if [[ ! -d "${CORPUS_LOC}" ]]; then
+            echo "Skipping missing corpus directory: ${CORPUS_LOC}"
+            continue
+        fi
+
+        INPUT_FILES=()
+        for MODEL in "${MODEL_LIST[@]}"; do
+            FILE="${CORPUS_LOC}/${MODEL}/_results/combined_complete_results_raw.rds"
+            [[ -f "${FILE}" ]] && INPUT_FILES+=("${FILE}")
+        done
+
+        run_combine_rds corpus "${SAVE_LOC}" "${COMBINE_OVERWRITE_STEP3}" "${INPUT_FILES[@]}"
+    done
+done
+
+# --------------------------------------------------
+# Step 4: corpus-level RDS -> data_type-level RDS
+# --------------------------------------------------
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    DATA_TYPE_LOC="${BASE_LOC}/${DATA_TYPE}"
+    SAVE_LOC="${DATA_TYPE_LOC}/_results/combined_complete_results_raw.rds"
+
+    if [[ ! -d "${DATA_TYPE_LOC}" ]]; then
+        echo "Skipping missing data_type directory: ${DATA_TYPE_LOC}"
+        continue
+    fi
+
+    INPUT_FILES=()
+    for CORPUS in "${CORPORA[@]}"; do
+        FILE="${DATA_TYPE_LOC}/${CORPUS}/_results/combined_complete_results_raw.rds"
+        [[ -f "${FILE}" ]] && INPUT_FILES+=("${FILE}")
+    done
+
+    run_combine_rds data_type "${SAVE_LOC}" "${COMBINE_OVERWRITE_STEP4}" "${INPUT_FILES[@]}"
+done
+
+# --------------------------------------------------
+# Step 5: data_type-level RDS -> overall-level RDS
+# --------------------------------------------------
+SAVE_LOC="${BASE_LOC}/_results/combined_complete_results_raw.rds"
+INPUT_FILES=()
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    FILE="${BASE_LOC}/${DATA_TYPE}/_results/combined_complete_results_raw.rds"
+    [[ -f "${FILE}" ]] && INPUT_FILES+=("${FILE}")
+done
+
+run_combine_rds overall "${SAVE_LOC}" "${COMBINE_OVERWRITE_STEP5}" "${INPUT_FILES[@]}"
+
+echo "Finished combine post-processing."

@@ -1,0 +1,61 @@
+#!/bin/bash --login
+
+#SBATCH -J perf_array
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A_%a.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A_%a.err
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/csf3_postprocessing_config.txt"
+
+require_task_file
+load_r_env
+
+TASK_LINE="$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${TASK_FILE}")"
+if [[ -z "${TASK_LINE}" ]]; then
+    echo "No task found for SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+    exit 1
+fi
+
+INPUT_LOC="${TASK_LINE}"
+if [[ ! -f "${INPUT_LOC}" ]]; then
+    echo "Missing input file: ${INPUT_LOC}"
+    exit 1
+fi
+
+PREFIX="$(performance_prefix_for_input "${INPUT_LOC}")"
+BASE_RESULTS_DIR="$(dirname "${INPUT_LOC}")"
+SAVE_LOC_UNCALIBRATED="${BASE_RESULTS_DIR}/${PREFIX}_uncalibrated_raw.xlsx"
+SAVE_LOC_CALIBRATED="${BASE_RESULTS_DIR}/${PREFIX}_calibrated_raw.xlsx"
+
+cd "${PROJECT_DIR}"
+
+echo "----------------------------------------"
+echo "R: $(which R)"
+echo "Rscript: $(which Rscript)"
+echo "Working directory: $(pwd)"
+echo "----------------------------------------"
+
+echo "Running performance scoring"
+echo "  INPUT_LOC=${INPUT_LOC}"
+echo "  SAVE_LOC_UNCALIBRATED=${SAVE_LOC_UNCALIBRATED}"
+echo "  SAVE_LOC_CALIBRATED=${SAVE_LOC_CALIBRATED}"
+
+Rscript -e 'if (file.exists("renv/activate.R")) source("renv/activate.R"); library(dplyr); library(purrr); library(tibble); library(writexl); library(idiolect); cat("Package load test passed\n")'
+
+Rscript "${R_PERFORMANCE_SCRIPT}" \
+  --input_loc "${INPUT_LOC}" \
+  --save_loc_uncalibrated "${SAVE_LOC_UNCALIBRATED}" \
+  --save_loc_calibrated "${SAVE_LOC_CALIBRATED}" \
+  --grouping_cols "${GROUPING_COLS}" \
+  --scoring_cols "${SCORING_COLS}" \
+  --by "${BY}" \
+  --progress "${PROGRESS}" \
+  --save_rds "${SAVE_RDS}"
+
+echo "Finished performance scoring for ${INPUT_LOC}"

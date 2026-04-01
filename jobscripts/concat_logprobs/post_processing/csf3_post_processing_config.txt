@@ -1,0 +1,182 @@
+#!/bin/bash
+
+# --------------------------------------------------
+# Shared configuration for CSF3 post-processing jobs
+# --------------------------------------------------
+
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs"
+PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+
+PYTHON_COMBINE_SCRIPT="${PROJECT_DIR}/scripts/combine_files.py"
+PYTHON_LFL_SCRIPT="${PROJECT_DIR}/scripts/create_like_for_like.py"
+R_PERFORMANCE_SCRIPT="${PROJECT_DIR}/scripts/calculate_performance.R"
+
+CONDA_MODULE="apps/binapps/anaconda3/2024.10"
+CONDA_ENV="venv"
+R_MODULE="apps/gcc/R/4.5.0"
+
+MODEL_LIST=(
+    "gpt2"
+)
+
+CORPORA=(
+    "ACL"
+    "Amazon"
+    "Enron Cleaned"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "Reddit"
+    "StackExchange"
+    "The Apricity"
+    "The Telegraph"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+DATA_TYPES=(
+    "test"
+    "training"
+)
+
+RAW_DIRS=(
+    "raw"
+    "raw_5"
+    "raw_10"
+    "raw_20"
+    "raw_30"
+    "raw_40"
+    "raw_50"
+    "raw_60"
+    "raw_70"
+    "raw_80"
+    "raw_90"
+    "raw_100"
+    "raw_200"
+    "raw_300"
+    "raw_400"
+    "raw_500"
+    "raw_600"
+    "raw_700"
+    "raw_800"
+    "raw_900"
+    "raw_1000"
+)
+
+SHEET_NAMES=(
+    "metadata"
+)
+
+COMPLETE_ONLY=true
+
+# --------------------------------------------------
+# Overwrite controls
+# --------------------------------------------------
+COMBINE_OVERWRITE_STEP1=true
+COMBINE_OVERWRITE_STEP2=true
+COMBINE_OVERWRITE_STEP3=true
+COMBINE_OVERWRITE_STEP4=true
+COMBINE_OVERWRITE_STEP5=true
+
+LFL_OVERWRITE_MODEL_LEVEL=true
+LFL_OVERWRITE_CORPUS_LEVEL=true
+LFL_OVERWRITE_DATA_TYPE_LEVEL=true
+LFL_OVERWRITE_OVERALL_LEVEL=true
+
+# --------------------------------------------------
+# Performance settings
+# --------------------------------------------------
+GROUPING_COLS="data_type,corpus,scoring_model,max_context_tokens,min_token_size"
+SCORING_COLS="unknown_sum_log_probs"
+BY="case"
+PROGRESS="FALSE"
+SAVE_RDS="TRUE"
+
+# --------------------------------------------------
+# Array throttles
+# Tune these to match current cluster pressure / fair use.
+# --------------------------------------------------
+COMBINE_ARRAY_MAX_CONCURRENT=24
+LFL_ARRAY_MAX_CONCURRENT=24
+PERFORMANCE_ARRAY_MAX_CONCURRENT=8
+
+# --------------------------------------------------
+# Paths for generated task files and logs
+# --------------------------------------------------
+TASK_DIR="${BASE_LOC}/_results/slurm_task_lists"
+LOG_DIR="${PROJECT_DIR}/slurm_logs/postprocessing"
+
+mkdir -p "${TASK_DIR}" "${LOG_DIR}" "${BASE_LOC}/_results"
+
+load_python_env() {
+    module purge
+    module load "${CONDA_MODULE}"
+    conda activate "${CONDA_ENV}"
+}
+
+clean_conda_from_path() {
+    conda deactivate 2>/dev/null || true
+
+    unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_SHLVL
+    unset XML2_CONFIG
+    unset PKG_CONFIG_LIBDIR
+    unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+
+    PATH="$(echo "$PATH" | tr ':' '\n' | grep -v 'anaconda3' | paste -sd ':' -)"
+    export PATH
+    hash -r
+}
+
+load_r_env() {
+    clean_conda_from_path
+    module purge
+    module load "${R_MODULE}"
+}
+
+require_task_file() {
+    if [[ -z "${TASK_FILE:-}" ]]; then
+        echo "TASK_FILE environment variable is not set."
+        exit 1
+    fi
+
+    if [[ ! -f "${TASK_FILE}" ]]; then
+        echo "TASK_FILE does not exist: ${TASK_FILE}"
+        exit 1
+    fi
+}
+
+performance_prefix_for_input() {
+    local input_file
+    input_file="$(basename "$1")"
+
+    case "${input_file}" in
+        combined_complete_results_raw.rds)
+            echo "performance"
+            ;;
+        combined_adjusted_scores_raw.rds)
+            echo "performance_adj"
+            ;;
+        combined_like_for_like_scores_raw.rds)
+            echo "lfl_performance"
+            ;;
+        combined_like_for_like_adjusted_scores_raw.rds)
+            echo "lfl_performance_adj"
+            ;;
+        *)
+            local stem
+            stem="${input_file%.rds}"
+            stem="${stem#combined_}"
+            stem="${stem%_raw}"
+            stem="${stem//_scores/}"
+            stem="${stem//_results/}"
+            stem="${stem//__/_}"
+            stem="$(echo "${stem}" | sed 's/^_//; s/_$//')"
+
+            if [[ -z "${stem}" ]]; then
+                echo "performance"
+            else
+                echo "performance_${stem}"
+            fi
+            ;;
+    esac
+}

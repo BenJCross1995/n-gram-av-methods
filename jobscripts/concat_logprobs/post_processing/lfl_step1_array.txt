@@ -1,0 +1,58 @@
+#!/bin/bash --login
+
+#SBATCH -J lfl_step1
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A_%a.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A_%a.err
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/csf3_postprocessing_config.txt"
+
+require_task_file
+load_python_env
+
+TASK_LINE="$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${TASK_FILE}")"
+if [[ -z "${TASK_LINE}" ]]; then
+    echo "No task found for SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+    exit 1
+fi
+
+IFS=$'\t' read -r DATA_TYPE CORPUS MODEL <<< "${TASK_LINE}"
+
+MODEL_RESULTS_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}/_results"
+INPUT_LOC="${MODEL_RESULTS_LOC}/combined_complete_results_raw.rds"
+ADJUSTED_SAVE_LOC="${MODEL_RESULTS_LOC}/combined_adjusted_scores_raw.rds"
+LIKE_FOR_LIKE_SAVE_LOC="${MODEL_RESULTS_LOC}/combined_like_for_like_scores_raw.rds"
+LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC="${MODEL_RESULTS_LOC}/combined_like_for_like_adjusted_scores_raw.rds"
+
+if [[ ! -f "${INPUT_LOC}" ]]; then
+    echo "Skipping missing model-level input: ${INPUT_LOC}"
+    exit 0
+fi
+
+CMD=(
+    python -u "${PYTHON_LFL_SCRIPT}"
+    --input_loc "${INPUT_LOC}"
+    --adjusted_save_loc "${ADJUSTED_SAVE_LOC}"
+    --like_for_like_save_loc "${LIKE_FOR_LIKE_SAVE_LOC}"
+    --like_for_like_adjusted_save_loc "${LIKE_FOR_LIKE_ADJUSTED_SAVE_LOC}"
+)
+
+if [[ "${LFL_OVERWRITE_MODEL_LEVEL}" == true ]]; then
+    CMD+=(--overwrite)
+fi
+
+echo "Running like-for-like step 1"
+echo "  DATA_TYPE=${DATA_TYPE}"
+echo "  CORPUS=${CORPUS}"
+echo "  MODEL=${MODEL}"
+echo "  INPUT_LOC=${INPUT_LOC}"
+
+"${CMD[@]}"
+
+echo "Finished like-for-like step 1 for ${DATA_TYPE} / ${CORPUS} / ${MODEL}"

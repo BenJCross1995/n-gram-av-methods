@@ -1,0 +1,65 @@
+#!/bin/bash --login
+
+#SBATCH -J combine_step1
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A_%a.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A_%a.err
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/csf3_postprocessing_config.txt"
+
+require_task_file
+load_python_env
+
+TASK_LINE="$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${TASK_FILE}")"
+if [[ -z "${TASK_LINE}" ]]; then
+    echo "No task found for SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+    exit 1
+fi
+
+IFS=$'\t' read -r DATA_TYPE CORPUS MODEL RAW_DIR <<< "${TASK_LINE}"
+
+MODEL_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}"
+RAW_RESULTS_DIR="${MODEL_LOC}/raw_results"
+DATA_LOC="${MODEL_LOC}/${RAW_DIR}"
+SAVE_LOC="${RAW_RESULTS_DIR}/${RAW_DIR}_complete_results.rds"
+
+mkdir -p "${RAW_RESULTS_DIR}"
+
+if [[ ! -d "${DATA_LOC}" ]]; then
+    echo "Skipping missing directory: ${DATA_LOC}"
+    exit 0
+fi
+
+CMD=(
+    python -u "${PYTHON_COMBINE_SCRIPT}"
+    --mode combine_xlsx
+    --combine_level raw_subdir
+    --data_loc "${DATA_LOC}"
+    --save_loc "${SAVE_LOC}"
+    --sheet_names "${SHEET_NAMES[@]}"
+)
+
+if [[ "${COMBINE_OVERWRITE_STEP1}" == true ]]; then
+    CMD+=(--overwrite)
+fi
+
+if [[ "${COMPLETE_ONLY}" == true ]]; then
+    CMD+=(--complete_only)
+fi
+
+echo "Running combine step 1"
+echo "  DATA_TYPE=${DATA_TYPE}"
+echo "  CORPUS=${CORPUS}"
+echo "  MODEL=${MODEL}"
+echo "  RAW_DIR=${RAW_DIR}"
+echo "  SAVE_LOC=${SAVE_LOC}"
+
+"${CMD[@]}"
+
+echo "Finished combine step 1 for ${DATA_TYPE} / ${CORPUS} / ${MODEL} / ${RAW_DIR}"
