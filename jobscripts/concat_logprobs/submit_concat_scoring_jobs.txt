@@ -82,16 +82,7 @@ CORPORA=(
 )
 
 CORPORA=(
-    "ACL"
     "Enron Cleaned"
-    "Koppel's Blogs"
-    "Perverted Justice"
-    "StackExchange"
-    "The Apricity"
-    "The Telegraph"
-    "TripAdvisor"
-    "Wiki"
-    "Yelp"
 )
 
 DATA_TYPES=(

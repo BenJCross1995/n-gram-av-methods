@@ -10,6 +10,10 @@ FIXED_NUM_TOKENS = [
     200, 300, 400, 500, 600, 700, 800, 900, 1000
 ]
 
+FIXED_NUM_TOKENS = [
+    0
+]
+
 def parse_args():
     ap = argparse.ArgumentParser(
         description="Run score_ngrams.py in a loop over fixed num_tokens values"
