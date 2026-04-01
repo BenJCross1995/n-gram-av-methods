@@ -10,18 +10,7 @@
 
 set -euo pipefail
 
-set -euo pipefail
-
-if [[ -n "${SLURM_JOB_ID:-}" ]]; then
-    SCRIPT_PATH="$(scontrol show job "${SLURM_JOB_ID}" | awk -F= '/Command=/{print $2}')"
-    if [[ "${SCRIPT_PATH}" != /* ]]; then
-        SCRIPT_PATH="${SLURM_SUBMIT_DIR}/${SCRIPT_PATH}"
-    fi
-else
-    SCRIPT_PATH="${BASH_SOURCE[0]}"
-fi
-
-SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
+SCRIPT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/jobscripts/concat_logprobs/post_processing"
 source "${SCRIPT_DIR}/csf3_postprocessing_config.txt"
 
 PERF_TASK_FILE="${TASK_DIR}/performance_tasks.txt"
