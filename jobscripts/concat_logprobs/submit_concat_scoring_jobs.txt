@@ -81,10 +81,6 @@ CORPORA=(
     "Yelp"
 )
 
-CORPORA=(
-    "Enron Cleaned"
-)
-
 DATA_TYPES=(
     "test"
     "training"
