@@ -70,6 +70,7 @@ CORPORA=(
     "ACL"
     "Amazon"
     "Enron Cleaned"
+    "IMDB"
     "Koppel's Blogs"
     "Perverted Justice"
     "Reddit"
@@ -79,6 +80,10 @@ CORPORA=(
     "TripAdvisor"
     "Wiki"
     "Yelp"
+)
+
+CORPORA-(
+    "IMDB"
 )
 
 DATA_TYPES=(
