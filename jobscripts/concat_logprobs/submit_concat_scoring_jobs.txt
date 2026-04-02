@@ -82,7 +82,7 @@ CORPORA=(
     "Yelp"
 )
 
-CORPORA-(
+CORPORA=(
     "IMDB"
 )
 
