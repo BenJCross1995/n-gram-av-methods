@@ -5,13 +5,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-FIXED_NUM_TOKENS = [
-    5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+DEFAULT_FIXED_NUM_TOKENS = [
+    0, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
     200, 300, 400, 500, 600, 700, 800, 900, 1000
-]
-
-FIXED_NUM_TOKENS = [
-    1
 ]
 
 def parse_args():
@@ -45,6 +41,14 @@ def parse_args():
     # Keep for "same args" compatibility; ignored here (we override per loop)
     ap.add_argument("--num_tokens", type=int, default=None)
     
+    ap.add_argument(
+        "--fixed_num_tokens",
+        nargs="+",
+        type=int,
+        default=None,
+        help="List of num_tokens values to loop over, e.g. --fixed_num_tokens 1 5 10 20"
+    )
+    
     # Script Choice
     ap.add_argument("--score_script", type=str, default="score_ngrams")
 
@@ -66,6 +70,11 @@ def main():
     if not target_script.exists():
         raise FileNotFoundError(f"Could not find {target_script}")
 
+    if args.fixed_num_tokens is not None:
+        fixed_num_tokens = args.fixed_num_tokens
+    else:
+        fixed_num_tokens = DEFAULT_FIXED_NUM_TOKENS
+        
     base_cmd = [
         sys.executable,
         str(target_script),
@@ -97,7 +106,7 @@ def main():
     # Only pass completed_loc if provided
     has_completed = bool(args.completed_loc)
 
-    for nt in FIXED_NUM_TOKENS:
+    for nt in fixed_num_tokens:
         save_loc_nt = with_suffix_dir(args.save_loc, nt)
         completed_loc_nt = with_suffix_dir(args.completed_loc, nt) if has_completed else None
 

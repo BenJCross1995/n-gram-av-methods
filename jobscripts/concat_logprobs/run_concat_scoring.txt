@@ -32,6 +32,10 @@ conda activate venv
 : "${MULTI_SCRIPT:?Missing MULTI_SCRIPT}"
 : "${CONCAT_SCRIPT:?Missing CONCAT_SCRIPT}"
 : "${SCORE_SCRIPT_NAME:?Missing SCORE_SCRIPT_NAME}"
+: "${FIXED_NUM_TOKENS:?Missing FIXED_NUM_TOKENS}"
+
+# Turn the incoming space-separated string into a bash array
+read -r -a FIXED_NUM_TOKENS_ARR <<< "${FIXED_NUM_TOKENS}"
 
 # ============================================================
 # Build paths
@@ -62,14 +66,15 @@ if [[ -z "${PROBLEM:-}" ]]; then
 fi
 
 echo "============================================================"
-echo "CORPUS        : ${CORPUS}"
-echo "DATA_TYPE     : ${DATA_TYPE}"
-echo "MODEL         : ${MODEL}"
-echo "TASK_ID       : ${SLURM_ARRAY_TASK_ID}"
-echo "PROBLEM       : ${PROBLEM}"
-echo "PROBLEM_LIST  : ${PROBLEM_LIST}"
-echo "SAVE_LOC      : ${SAVE_LOC}"
-echo "COMPLETED_LOC : ${COMPLETED_LOC}"
+echo "CORPUS           : ${CORPUS}"
+echo "DATA_TYPE        : ${DATA_TYPE}"
+echo "MODEL            : ${MODEL}"
+echo "TASK_ID          : ${SLURM_ARRAY_TASK_ID}"
+echo "PROBLEM          : ${PROBLEM}"
+echo "PROBLEM_LIST     : ${PROBLEM_LIST}"
+echo "SAVE_LOC         : ${SAVE_LOC}"
+echo "COMPLETED_LOC    : ${COMPLETED_LOC}"
+echo "FIXED_NUM_TOKENS : ${FIXED_NUM_TOKENS}"
 echo "============================================================"
 
 # ============================================================
@@ -98,7 +103,8 @@ RUN_CONCAT="${RUN_CONCAT:-false}"
 if [[ "${RUN_MULTI}" == "true" ]]; then
     python -u "${SCRIPT_ROOT}/${MULTI_SCRIPT}" \
         "${COMMON_ARGS[@]}" \
-        --score_script "${SCORE_SCRIPT_NAME}"
+        --score_script "${SCORE_SCRIPT_NAME}" \
+        --fixed_num_tokens "${FIXED_NUM_TOKENS_ARR[@]}"
 fi
 
 # ============================================================

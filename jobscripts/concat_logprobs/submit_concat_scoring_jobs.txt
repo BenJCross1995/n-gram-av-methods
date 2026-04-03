@@ -68,6 +68,7 @@ MODEL_LIST=(
 
 CORPORA=(
     "ACL"
+    "All-the-news"
     "Amazon"
     "Enron Cleaned"
     "IMDB"
@@ -82,13 +83,23 @@ CORPORA=(
     "Yelp"
 )
 
-CORPORA=(
-    "StackExchange"
-)
-
 DATA_TYPES=(
     "test"
     "training"
+)
+
+FIXED_NUM_TOKENS=(
+    0 5 10 20 30 40 50 60 70 80 90 100
+    200 300 400 500 600 700 800 900 1000
+)
+
+# Testing subset:
+CORPORA=(
+    "All-the-news"
+)
+
+FIXED_NUM_TOKENS=(
+    10
 )
 
 # ============================================================
@@ -144,12 +155,13 @@ for MODEL in "${MODEL_LIST[@]}"; do
 
             echo "------------------------------------------------------------"
             echo "Submitting:"
-            echo "  CORPUS       = ${CORPUS}"
-            echo "  DATA_TYPE    = ${DATA_TYPE}"
-            echo "  MODEL        = ${MODEL}"
-            echo "  PROBLEM_LIST = ${PROBLEM_LIST}"
-            echo "  NUM_TASKS    = ${NUM_TASKS}"
-            echo "  JOB_NAME     = ${JOB_NAME}"
+            echo "  CORPUS           = ${CORPUS}"
+            echo "  DATA_TYPE        = ${DATA_TYPE}"
+            echo "  MODEL            = ${MODEL}"
+            echo "  PROBLEM_LIST     = ${PROBLEM_LIST}"
+            echo "  NUM_TASKS        = ${NUM_TASKS}"
+            echo "  JOB_NAME         = ${JOB_NAME}"
+            echo "  FIXED_NUM_TOKENS = ${FIXED_NUM_TOKENS[*]}"
 
             SBATCH_ARGS=(
                 --parsable
@@ -186,6 +198,7 @@ for MODEL in "${MODEL_LIST[@]}"; do
                 SCORE_SCRIPT_NAME="${SCORE_SCRIPT_NAME}" \
                 RUN_MULTI="${RUN_MULTI}" \
                 RUN_CONCAT="${RUN_CONCAT}" \
+                FIXED_NUM_TOKENS="${FIXED_NUM_TOKENS[*]}" \
                 sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
             )"
 
