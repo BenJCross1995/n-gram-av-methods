@@ -95,11 +95,11 @@ FIXED_NUM_TOKENS=(
 
 # Testing subset:
 CORPORA=(
-    "All-the-news"
+    "StackExchange"
 )
 
 FIXED_NUM_TOKENS=(
-    10
+    0
 )
 
 # ============================================================
