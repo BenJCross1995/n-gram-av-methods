@@ -83,7 +83,7 @@ CORPORA=(
 )
 
 CORPORA=(
-    "All-the-news"
+    "StackExchange"
 )
 
 DATA_TYPES=(

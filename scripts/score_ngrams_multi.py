@@ -11,7 +11,7 @@ FIXED_NUM_TOKENS = [
 ]
 
 FIXED_NUM_TOKENS = [
-    0
+    1
 ]
 
 def parse_args():
