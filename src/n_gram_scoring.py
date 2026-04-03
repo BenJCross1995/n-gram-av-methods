@@ -12,12 +12,11 @@ from n_gram_tracing import (
     get_trimmed_context_before_span,
 )
 
-
 def score_ngrams(
     ngram: Union[str, Sequence[str]],
     model: Any,
     tokenizer: Any,
-    text: Optional[str] = None,
+    text: Optional[Union[str, Sequence[Any]]] = None,
     *,
     lowercase: bool = True,
     use_bos: bool = False,
@@ -26,6 +25,11 @@ def score_ngrams(
     Causal LM scoring. N-gram is assumed to be at the END of the text.
 
     `ngram` may be:
+      - a string
+      - a sequence of tokenizer tokens
+
+    `text` may be:
+      - None
       - a string
       - a sequence of tokenizer tokens
     """
@@ -46,13 +50,29 @@ def score_ngrams(
     phrase_ids_list = tokens_to_ids(ngram_tokens, tokenizer)
     ngram_len = len(phrase_ids_list)
 
-    seq_text = phrase if text is None else text
-    seq_for_tok = seq_text.casefold() if lowercase else seq_text
-    input_ids = tokenizer(
-        seq_for_tok,
-        add_special_tokens=False,
-        return_tensors="pt",
-    )["input_ids"]
+    # Build input ids with minimal unnecessary work
+    if text is None:
+        seq_tokens = ngram_tokens
+        input_ids_list = phrase_ids_list
+
+    elif isinstance(text, str):
+        seq_for_tok = text.casefold() if lowercase else text
+        enc = tokenizer(
+            seq_for_tok,
+            add_special_tokens=False,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+        )
+        input_ids_list = enc.get("input_ids", [])
+        if input_ids_list and isinstance(input_ids_list[0], (list, tuple)):
+            input_ids_list = input_ids_list[0]
+        seq_tokens = tokenizer.convert_ids_to_tokens(input_ids_list)
+
+    else:
+        seq_tokens = list(text)
+        input_ids_list = tokens_to_ids(seq_tokens, tokenizer)
+
+    input_ids = torch.tensor([input_ids_list], dtype=torch.long)
 
     model.eval()
     device = next(model.parameters()).device
@@ -69,7 +89,22 @@ def score_ngrams(
     else:
         ids_for_model = input_ids
 
-    tokens: List[str] = tokenizer.convert_ids_to_tokens(input_ids[0].tolist())
+    # Hard cap for model forward pass
+    max_positions = getattr(model.config, "n_positions", None)
+    if max_positions is None:
+        max_positions = getattr(model.config, "max_position_embeddings", None)
+
+    if max_positions is not None and ids_for_model.shape[1] > max_positions:
+        ids_for_model = ids_for_model[:, -max_positions:]
+
+        # Rebuild visible seq_tokens to match the truncated model input
+        if has_bos:
+            visible_ids = ids_for_model[:, 1:]
+        else:
+            visible_ids = ids_for_model
+        seq_tokens = tokenizer.convert_ids_to_tokens(visible_ids[0].tolist())
+
+    tokens: List[str] = list(seq_tokens)
     text_len = len(tokens)
 
     if text_len == 0:
@@ -118,10 +153,7 @@ def score_ngrams(
         "text_len": text_len,
         "log_probs": ngram_log_probs,
         "sum_log_probs": ngram_sum_log_probs,
-        # "text_tokens": tokens,
-        # "text_log_probs": log_probs,
     }
-
 
 def score_ngrams_to_df(
     ngrams,
@@ -176,7 +208,7 @@ def score_ngrams_to_df(
             })
             continue
 
-        prefixes, token_spans, tokenized_text = texts_around_each_token_ngram(
+        _, token_spans, tokenized_text = texts_around_each_token_ngram(
             full_text,
             phrase_tokens,
             tokenizer=tokenizer,
@@ -185,23 +217,25 @@ def score_ngrams_to_df(
             allow_overlaps=False,
             return_spans=True,
             return_tokenized_text=True,
+            return_text=False,
         )
 
-        for i, (prefix, tok_span) in enumerate(zip(prefixes, token_spans), start=1):
+        for i, tok_span in enumerate(token_spans, start=1):
             if num_tokens == 0:
-                occ_text = tokens_to_text(phrase_tokens, tokenizer)
+                occ_text = phrase_tokens
                 effective_use_bos = True
             elif num_tokens is not None:
                 occ_text = get_trimmed_context_before_span(
                     tokens=tokenized_text,
                     token_span=tok_span,
                     max_tokens=num_tokens,
-                    return_text=True,
+                    return_text=False,
                     tokenizer=tokenizer,
                 )
                 effective_use_bos = use_bos
             else:
-                occ_text = prefix
+                _, end = tok_span
+                occ_text = tokenized_text[:end]
                 effective_use_bos = use_bos
 
             res = score_ngrams(
