@@ -276,6 +276,7 @@ def texts_before_each_token_ngram(
 
     return out
 
+
 def texts_around_each_token_ngram(
     text: str,
     ngram_tokens: List[Any],
@@ -286,13 +287,9 @@ def texts_around_each_token_ngram(
     allow_overlaps: bool = False,
     return_spans: bool = False,
     return_tokenized_text: bool = False,
-    return_text: bool = True,
 ):
     """
-    For each token-ngram match, optionally return the decoded text up to the end
-    of the match. Can also return spans and/or the tokenized full text.
-
-    If return_text=False, no decoding is performed.
+    For each token-ngram match, return the decoded text up to the end of the match.
     """
     full_tokens = tokenize_to_tokens(text, tokenizer=tokenizer, lowercase=lowercase)
     spans = find_all_token_ngram_spans(
@@ -302,12 +299,10 @@ def texts_around_each_token_ngram(
         allow_overlaps=allow_overlaps,
     )
 
-    prefix_through_end = None
-    if return_text:
-        prefix_through_end = [
-            tokens_to_text(full_tokens[:end], tokenizer)
-            for _, end in spans
-        ]
+    prefix_through_end = [
+        tokens_to_text(full_tokens[:end], tokenizer)
+        for _, end in spans
+    ]
 
     if return_spans and return_tokenized_text:
         return prefix_through_end, spans, full_tokens
