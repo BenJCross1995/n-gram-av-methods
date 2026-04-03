@@ -102,47 +102,87 @@ def common_ngrams(
     If include_subgrams is False, removes any shared n-gram that is a contiguous
     subspan of a longer shared n-gram.
 
-    Output format:
-        [[tok1, tok2, ...], [tok1, tok2, ...], ...]
+    This version does NOT materialize all possible n-grams of both texts.
+    Instead, it finds maximal common runs directly across alignment diagonals.
     """
-
-    def _all_ngrams(seq: Sequence[Any]) -> set[tuple[Any, ...]]:
-        out: set[tuple[Any, ...]] = set()
-        L = len(seq)
-        for k in range(1, L + 1):
-            for i in range(0, L - k + 1):
-                out.add(tuple(seq[i:i + k]))
-        return out
 
     seq1 = tokenize_to_tokens(text1, tokenizer=tokenizer, lowercase=lowercase)
     seq2 = tokenize_to_tokens(text2, tokenizer=tokenizer, lowercase=lowercase)
 
-    common = _all_ngrams(seq1) & _all_ngrams(seq2)
-    if not common:
+    n = len(seq1)
+    m = len(seq2)
+
+    if n == 0 or m == 0:
         return []
 
+    # ---------------------------------------------------------
+    # Collect maximal equal runs across all diagonals
+    # ---------------------------------------------------------
+    candidates: set[Tuple[Any, ...]] = set()
+
+    # delta = i - j
+    for delta in range(-(m - 1), n):
+        i = max(0, delta)
+        j = max(0, -delta)
+
+        run_start_i = None
+        run_len = 0
+
+        while i < n and j < m:
+            if seq1[i] == seq2[j]:
+                if run_start_i is None:
+                    run_start_i = i
+                    run_len = 1
+                else:
+                    run_len += 1
+            else:
+                if run_start_i is not None and run_len > 0:
+                    candidates.add(tuple(seq1[run_start_i:run_start_i + run_len]))
+                    run_start_i = None
+                    run_len = 0
+
+            i += 1
+            j += 1
+
+        # flush run at end of diagonal
+        if run_start_i is not None and run_len > 0:
+            candidates.add(tuple(seq1[run_start_i:run_start_i + run_len]))
+
+    if not candidates:
+        return []
+
+    # ---------------------------------------------------------
+    # Optional global subgram removal
+    # Keeps only n-grams that are not contiguous subspans
+    # of any longer shared candidate.
+    # ---------------------------------------------------------
     if not include_subgrams:
-        common_sorted = sorted(common, key=len, reverse=True)
+        candidates_sorted = sorted(candidates, key=len, reverse=True)
         kept: List[Tuple[Any, ...]] = []
 
-        for g in common_sorted:
+        for g in candidates_sorted:
             is_subspan = False
+            g_len = len(g)
+
             for h in kept:
-                if len(h) <= len(g):
+                h_len = len(h)
+                if h_len <= g_len:
                     continue
-                for i in range(0, len(h) - len(g) + 1):
-                    if h[i:i + len(g)] == g:
+
+                for s in range(0, h_len - g_len + 1):
+                    if h[s:s + g_len] == g:
                         is_subspan = True
                         break
+
                 if is_subspan:
                     break
+
             if not is_subspan:
                 kept.append(g)
 
-        common = set(kept)
+        candidates = set(kept)
 
-    return [list(g) for g in sorted(common, key=lambda x: (len(x), x))]
-
+    return [list(g) for g in sorted(candidates, key=lambda x: (len(x), x))]
 
 def filter_len_common_ngrams(
     common_ngram_list: List[List[Any]],
