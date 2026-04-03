@@ -83,9 +83,7 @@ CORPORA=(
 )
 
 CORPORA=(
-    "IMDB"
-    "Amazon"
-    "Reddit"
+    "All-the-news"
 )
 
 DATA_TYPES=(
