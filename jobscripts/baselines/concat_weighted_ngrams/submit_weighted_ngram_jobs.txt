@@ -8,6 +8,12 @@
 
 set -euo pipefail
 
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
 PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
 DATASET_BASE="/mnt/hum01-home01/d34195bc/av_datasets"
 RESULTS_BASE="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat_v2"
