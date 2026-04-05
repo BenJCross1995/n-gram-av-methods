@@ -45,7 +45,13 @@ def parse_args():
     ap.add_argument("--no-lowercase", dest="lowercase", action="store_false")
     ap.set_defaults(lowercase=True)
     # Weighting
-    ap.add_argument("--weight", type=str, choices=["linear", "power", "exp"], default="linear")
+    ap.add_argument(
+        "--weight",
+        type=str,
+        choices=["none", "linear", "power", "exp"],
+        default="linear",
+        help="Weighting scheme: none=unweighted sum, linear=n, power=n**alpha, exp=base**n."
+    )
     ap.add_argument("--alpha", type=float, default=1.0, help="Only used when --weight=power (w(n)=n**alpha).")
     ap.add_argument("--base", type=float, default=2.0, help="Only used when --weight=exp (w(n)=base**n).")
     

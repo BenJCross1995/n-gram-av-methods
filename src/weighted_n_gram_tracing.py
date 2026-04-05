@@ -16,10 +16,6 @@ def get_tokens(
 ):
     """
     Hugging Face Transformers tokenizer -> list of token strings.
-
-    Uses:
-      - tokenizer.encode(..., add_special_tokens=...)  :contentReference[oaicite:0]{index=0}
-      - tokenizer.convert_ids_to_tokens(...)            :contentReference[oaicite:1]{index=1}
     """
     if lowercase:
         text = text.lower()
@@ -39,7 +35,7 @@ def weighted_ngram_tracing_df(
     known_tokens_list: list[Sequence[Token]],
     unknown_tokens: Sequence[Token],
     common_n_grams: Iterable[Sequence[Token]],
-    weight: Literal["linear", "power", "exp"] = "linear",
+    weight: Literal["none", "linear", "power", "exp"] = "linear",
     alpha: float = 1.0,
     base: float = 2.0,
     decimals: int = 3,
@@ -49,6 +45,12 @@ def weighted_ngram_tracing_df(
     Per-n table using MULTIPLE known documents.
 
     known_ngrams_distinct is the union of distinct n-grams across all known docs.
+
+    weight options:
+      - "none"   -> no weighting, w = 1
+      - "linear" -> w = n
+      - "power"  -> w = n ** alpha
+      - "exp"    -> w = base ** n
     """
     common_by_n: Dict[int, set[Ngram]] = defaultdict(set)
     for ng in common_n_grams:
@@ -59,7 +61,6 @@ def weighted_ngram_tracing_df(
     rows: List[dict] = []
 
     for n in sorted(common_by_n):
-        # Union of known n-grams across all known docs
         K = set()
         for known_tokens in known_tokens_list:
             K |= _distinct_ngrams(known_tokens, n)
@@ -80,14 +81,16 @@ def weighted_ngram_tracing_df(
         jaccard = 0.0 if union_cnt == 0 else a / union_cnt
 
         weight_l = weight.lower().strip()
-        if weight_l == "linear":
+        if weight_l == "none":
+            w = 1.0
+        elif weight_l == "linear":
             w = float(n)
         elif weight_l == "power":
             w = float(n) ** float(alpha)
         elif weight_l == "exp":
             w = float(base) ** float(n)
         else:
-            raise ValueError("weight must be 'linear', 'power', or 'exp'.")
+            raise ValueError("weight must be 'none', 'linear', 'power', or 'exp'.")
 
         rows.append(
             {
@@ -124,7 +127,7 @@ def aggregate_weighted_df(
     df: pd.DataFrame,
     problem_metadata: pd.DataFrame,
     *,
-    weight: str,
+    weight: Literal["none", "linear", "power", "exp"],
     alpha: float = 1.0,
     base: float = 2.0,
     level_col: str = "token_level",
@@ -133,7 +136,7 @@ def aggregate_weighted_df(
     One row per min_token_size (t). Computes BOTH aggregated simpson/jaccard scores
     over token_level >= t. Prepends repeated single-row problem_metadata.
 
-    Also includes weighting params BEFORE min_token_size:
+    Weighting metadata columns before min_token_size:
       - always: weight
       - if weight == "power": alpha
       - if weight == "exp": base
@@ -142,17 +145,15 @@ def aggregate_weighted_df(
         raise ValueError("problem_metadata must be a single-row dataframe.")
 
     weight_l = weight.lower().strip()
-    if weight_l not in {"linear", "power", "exp"}:
-        raise ValueError("weight must be 'linear', 'power', or 'exp'.")
+    if weight_l not in {"none", "linear", "power", "exp"}:
+        raise ValueError("weight must be 'none', 'linear', 'power', or 'exp'.")
 
     levels = sorted(df[level_col].dropna().unique().tolist())
 
-    # Build the results table
     results = pd.DataFrame({"min_token_size": levels})
     results["simpson_score"] = [aggregate_ge(df, int(t), coef="simpson") for t in levels]
     results["jaccard_score"] = [aggregate_ge(df, int(t), coef="jaccard") for t in levels]
 
-    # Add weighting metadata columns before min_token_size
     weight_cols = {"weight": weight_l}
     if weight_l == "power":
         weight_cols["alpha"] = float(alpha)
@@ -162,7 +163,6 @@ def aggregate_weighted_df(
     for col, val in reversed(list(weight_cols.items())):
         results.insert(0, col, val)
 
-    # Prepend problem metadata (repeated)
     meta_rep = pd.concat([problem_metadata] * len(results), ignore_index=True)
     return pd.concat([meta_rep.reset_index(drop=True), results.reset_index(drop=True)], axis=1)
 
@@ -179,14 +179,12 @@ def create_excel_template(
     """
     path = Path(path)
 
-    # Choose writer mode safely
     writer_mode = "a" if path.exists() else "w"
     writer_kwargs = {"engine": "openpyxl", "mode": writer_mode}
     if writer_mode == "a":
-        writer_kwargs["if_sheet_exists"] = "replace"  # only valid in append mode
+        writer_kwargs["if_sheet_exists"] = "replace"
         
     with pd.ExcelWriter(path, **writer_kwargs) as writer:
-        # Write sheets only when provided / available
         if docs is not None:
             docs.to_excel(writer, index=False, sheet_name="docs")
         if ngrams is not None:
@@ -195,7 +193,6 @@ def create_excel_template(
         agg_weighted_df.to_excel(writer, index=False, sheet_name="metadata")
         
 def create_ngram_df(ngram_list):
-    
     ngram_df = pd.DataFrame({
         "n_gram": ngram_list
     })
