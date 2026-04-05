@@ -15,7 +15,7 @@ MODEL_BASE="/mnt/hum01-home01/d34195bc/models"
 
 WORKER_SCRIPT="${PROJECT_ROOT}/jobscripts/run_weighted_ngram_array.txt"
 JOBSCRIPT_DIR="${PROJECT_ROOT}/jobscripts/generated_weighted_ngram_tracing"
-LOG_DIR="${PROJECT_ROOT}/slurm_logs/weighted_ngram_tracing_concat"
+LOG_DIR="/mnt/hum01-home01/d34195bc/slurm_logs/weighted_ngram_tracing_concat"
 PYTHON_SCRIPT="${PROJECT_ROOT}/scripts/weighted_ngram_tracing_concat.py"
 
 mkdir -p "${JOBSCRIPT_DIR}"
@@ -48,6 +48,10 @@ CORPORA=(
     "TripAdvisor"
     "Wiki"
     "Yelp"
+)
+
+CORPORA=(
+    "ACL
 )
 
 POWER_ALPHAS=(
