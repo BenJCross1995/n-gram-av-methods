@@ -14,7 +14,7 @@ module load apps/binapps/anaconda3/2024.10
 # Activate the environment
 conda activate venv
 
-BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat_v2"
 SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/weighted_ngram_tracing_rough_linears.py"
 
 MODEL_LIST=(
@@ -23,8 +23,10 @@ MODEL_LIST=(
 
 CORPORA=(
     "ACL"
+    "All-the-news"
     "Amazon"
     "Enron Cleaned"
+    "IMDB"
     "Koppel's Blogs"
     "Perverted Justice"
     "Reddit"
