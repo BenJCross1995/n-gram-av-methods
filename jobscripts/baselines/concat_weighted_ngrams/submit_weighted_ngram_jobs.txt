@@ -51,7 +51,7 @@ CORPORA=(
 )
 
 CORPORA=(
-    "ACL
+    "ACL"
 )
 
 POWER_ALPHAS=(
