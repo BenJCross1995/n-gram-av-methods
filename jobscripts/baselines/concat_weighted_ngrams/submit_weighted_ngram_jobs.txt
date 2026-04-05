@@ -1,0 +1,126 @@
+#!/bin/bash --login
+set -euo pipefail
+
+PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+DATASET_BASE="/mnt/hum01-home01/d34195bc/av_datasets"
+RESULTS_BASE="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat_v2"
+MODEL_BASE="/mnt/hum01-home01/d34195bc/models"
+
+WORKER_SCRIPT="${PROJECT_ROOT}/jobscripts/run_weighted_ngram_array.txt"
+JOBSCRIPT_DIR="${PROJECT_ROOT}/jobscripts/generated_weighted_ngram_tracing"
+LOG_DIR="${PROJECT_ROOT}/slurm_logs/weighted_ngram_tracing_concat"
+PYTHON_SCRIPT="${PROJECT_ROOT}/scripts/weighted_ngram_tracing_concat.py"
+
+mkdir -p "${JOBSCRIPT_DIR}"
+mkdir -p "${LOG_DIR}"
+
+# ------------------------------------------------------------
+# Configure here
+# ------------------------------------------------------------
+MODEL_LIST=(
+    "gpt2"
+)
+
+DATA_TYPES=(
+    "training"
+    "test"
+)
+
+CORPORA=(
+    "ACL"
+    "All-the-news"
+    "Amazon"
+    "Enron Cleaned"
+    "IMDB"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "Reddit"
+    "StackExchange"
+    "The Apricity"
+    "The Telegraph"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+POWER_ALPHAS=(
+    "0.5"
+    "1.0"
+    "2.0"
+    "3.0"
+)
+
+EXP_BASES=(
+    "1.25"
+    "1.5"
+    "2.0"
+    "3.0"
+)
+
+join_by_space() {
+    local IFS=" "
+    echo "$*"
+}
+
+POWER_ALPHAS_STR="$(join_by_space "${POWER_ALPHAS[@]}")"
+EXP_BASES_STR="$(join_by_space "${EXP_BASES[@]}")"
+
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    METADATA_LOC="${DATASET_BASE}/${DATA_TYPE}/metadata.rds"
+
+    for CORPUS in "${CORPORA[@]}"; do
+        PROBLEM_LIST="${DATASET_BASE}/${DATA_TYPE}/${CORPUS}/agg_problem_list.txt"
+
+        if [[ ! -f "${PROBLEM_LIST}" ]]; then
+            echo "Skipping ${DATA_TYPE} / ${CORPUS} - missing problem list"
+            continue
+        fi
+
+        N_PROBLEMS=$(awk 'NF {c++} END {print c+0}' "${PROBLEM_LIST}")
+
+        if [[ "${N_PROBLEMS}" -eq 0 ]]; then
+            echo "Skipping ${DATA_TYPE} / ${CORPUS} - no problems found"
+            continue
+        fi
+
+        for MODEL in "${MODEL_LIST[@]}"; do
+            MODEL_LOC="${MODEL_BASE}/${MODEL}"
+
+            SAFE_NAME=$(printf '%s' "${DATA_TYPE}_${CORPUS}_${MODEL}" | sed 's/[^A-Za-z0-9._-]/_/g')
+            JOBSCRIPT_LOC="${JOBSCRIPT_DIR}/${SAFE_NAME}.sbatch"
+
+            cat > "${JOBSCRIPT_LOC}" <<EOF
+#!/bin/bash --login
+#SBATCH -J wng_${SAFE_NAME}
+#SBATCH -a 1-${N_PROBLEMS}
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o ${LOG_DIR}/${SAFE_NAME}_%A_%a.out
+#SBATCH -e ${LOG_DIR}/${SAFE_NAME}_%A_%a.err
+
+set -euo pipefail
+
+export DATA_TYPE="${DATA_TYPE}"
+export CORPUS="${CORPUS}"
+export MODEL="${MODEL}"
+export MODEL_LOC="${MODEL_LOC}"
+export PROBLEM_LIST="${PROBLEM_LIST}"
+export DATASET_BASE="${DATASET_BASE}"
+export RESULTS_BASE="${RESULTS_BASE}"
+export METADATA_LOC="${METADATA_LOC}"
+export PYTHON_SCRIPT="${PYTHON_SCRIPT}"
+export POWER_ALPHAS_STR="${POWER_ALPHAS_STR}"
+export EXP_BASES_STR="${EXP_BASES_STR}"
+
+bash "${WORKER_SCRIPT}"
+EOF
+
+            chmod +x "${JOBSCRIPT_LOC}"
+
+            echo "Submitting ${JOBSCRIPT_LOC}"
+            sbatch "${JOBSCRIPT_LOC}"
+        done
+    done
+done
