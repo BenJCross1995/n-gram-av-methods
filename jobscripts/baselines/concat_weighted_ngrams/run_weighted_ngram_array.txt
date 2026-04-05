@@ -1,75 +1,104 @@
 #!/bin/bash --login
-set -euo pipefail
 
-# ------------------------------------------------------------
-# Expected environment variables from the generated jobscript:
-#   DATA_TYPE
-#   CORPUS
-#   MODEL
-#   MODEL_LOC
-#   PROBLEM_LIST
-#   DATASET_BASE
-#   RESULTS_BASE
-#   METADATA_LOC
-#   PYTHON_SCRIPT
-#   POWER_ALPHAS_STR
-#   EXP_BASES_STR
-# ------------------------------------------------------------
+#SBATCH -n 1
+
+set -euo pipefail
 
 # Load conda module
 module load apps/binapps/anaconda3/2024.10
 
-# Activate environment
+# Activate the environment
 conda activate venv
 
-echo "----------------------------------------"
-echo "DATA_TYPE: ${DATA_TYPE}"
-echo "CORPUS: ${CORPUS}"
-echo "MODEL: ${MODEL}"
-echo "MODEL_LOC: ${MODEL_LOC}"
-echo "PROBLEM_LIST: ${PROBLEM_LIST}"
-echo "SLURM_ARRAY_TASK_ID: ${SLURM_ARRAY_TASK_ID}"
-echo "----------------------------------------"
+# ============================================================
+# Required vars passed in from master submitter
+# ============================================================
 
-if [[ ! -f "${PROBLEM_LIST}" ]]; then
-    echo "Problem list not found: ${PROBLEM_LIST}"
-    exit 1
-fi
+: "${CORPUS:?Missing CORPUS}"
+: "${DATA_TYPE:?Missing DATA_TYPE}"
+: "${MODEL:?Missing MODEL}"
 
-# Get the Nth non-empty line from the problem list
-PROBLEM=$(awk -v n="${SLURM_ARRAY_TASK_ID}" 'NF {c++; if (c == n) {print; exit}}' "${PROBLEM_LIST}")
+: "${PROJECT_ROOT:?Missing PROJECT_ROOT}"
+: "${SCRIPT_ROOT:?Missing SCRIPT_ROOT}"
+: "${DATA_ROOT:?Missing DATA_ROOT}"
+: "${MODEL_ROOT:?Missing MODEL_ROOT}"
+: "${EXPERIMENT_ROOT:?Missing EXPERIMENT_ROOT}"
+
+: "${EXPERIMENT_NAME:?Missing EXPERIMENT_NAME}"
+: "${PROBLEM_LIST_NAME:?Missing PROBLEM_LIST_NAME}"
+: "${PYTHON_SCRIPT:?Missing PYTHON_SCRIPT}"
+: "${POWER_ALPHAS:?Missing POWER_ALPHAS}"
+: "${EXP_BASES:?Missing EXP_BASES}"
+
+# Turn incoming space-separated strings into bash arrays
+read -r -a POWER_ALPHAS_ARR <<< "${POWER_ALPHAS}"
+read -r -a EXP_BASES_ARR <<< "${EXP_BASES}"
+
+# ============================================================
+# Build paths
+# ============================================================
+
+PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
+KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
+UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
+MODEL_LOC="${MODEL_ROOT}/${MODEL}"
+
+BASE_SAVE_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}"
+
+# ============================================================
+# Get problem for this array task
+# Count only non-empty lines
+# ============================================================
+
+PROBLEM="$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NF {c++} c==n {print; exit}' "${PROBLEM_LIST}")"
 
 if [[ -z "${PROBLEM:-}" ]]; then
-    echo "No problem found for SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+    echo "ERROR: No problem found for array task ${SLURM_ARRAY_TASK_ID}"
+    echo "Problem list: ${PROBLEM_LIST}"
     exit 1
 fi
 
-KNOWN_LOC="${DATASET_BASE}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
-UNKNOWN_LOC="${DATASET_BASE}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+echo "============================================================"
+echo "CORPUS        : ${CORPUS}"
+echo "DATA_TYPE     : ${DATA_TYPE}"
+echo "MODEL         : ${MODEL}"
+echo "TASK_ID       : ${SLURM_ARRAY_TASK_ID}"
+echo "PROBLEM       : ${PROBLEM}"
+echo "PROBLEM_LIST  : ${PROBLEM_LIST}"
+echo "BASE_SAVE_LOC : ${BASE_SAVE_LOC}"
+echo "POWER_ALPHAS  : ${POWER_ALPHAS}"
+echo "EXP_BASES     : ${EXP_BASES}"
+echo "============================================================"
+
+# ============================================================
+# Helper
+# ============================================================
 
 run_one() {
     local WEIGHT="$1"
     local ALPHA="$2"
     local BASE="$3"
     local SAVE_LOC="$4"
+    local COMPLETED_LOC="$5"
 
-    mkdir -p "${SAVE_LOC}"
+    mkdir -p "${SAVE_LOC}" "${COMPLETED_LOC}"
 
-    echo
+    echo "------------------------------------------------------------"
     echo "Running:"
-    echo "  problem = ${PROBLEM}"
-    echo "  weight  = ${WEIGHT}"
-    echo "  alpha   = ${ALPHA}"
-    echo "  base    = ${BASE}"
-    echo "  save    = ${SAVE_LOC}"
+    echo "  WEIGHT        = ${WEIGHT}"
+    echo "  ALPHA         = ${ALPHA}"
+    echo "  BASE          = ${BASE}"
+    echo "  SAVE_LOC      = ${SAVE_LOC}"
+    echo "  COMPLETED_LOC = ${COMPLETED_LOC}"
 
-    python -u "${PYTHON_SCRIPT}" \
+    python -u "${SCRIPT_ROOT}/${PYTHON_SCRIPT}" \
         --known_loc "${KNOWN_LOC}" \
         --unknown_loc "${UNKNOWN_LOC}" \
         --metadata_loc "${METADATA_LOC}" \
         --model_loc "${MODEL_LOC}" \
         --save_loc "${SAVE_LOC}" \
-        --completed_loc "${SAVE_LOC}" \
+        --completed_loc "${COMPLETED_LOC}" \
         --corpus "${CORPUS}" \
         --data_type "${DATA_TYPE}" \
         --problem "${PROBLEM}" \
@@ -79,49 +108,52 @@ run_one() {
         --lowercase
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # none
-# ------------------------------------------------------------
+# ============================================================
+
 run_one \
     "none" \
     "1.0" \
     "2.0" \
-    "${RESULTS_BASE}/${DATA_TYPE}/${CORPUS}/${MODEL}/none"
+    "${BASE_SAVE_LOC}/none" \
+    "${BASE_SAVE_LOC}/none"
 
-# ------------------------------------------------------------
+# ============================================================
 # linear
-# ------------------------------------------------------------
+# ============================================================
+
 run_one \
     "linear" \
     "1.0" \
     "2.0" \
-    "${RESULTS_BASE}/${DATA_TYPE}/${CORPUS}/${MODEL}/linear"
+    "${BASE_SAVE_LOC}/linear" \
+    "${BASE_SAVE_LOC}/linear"
 
-# ------------------------------------------------------------
-# power (subfolder by alpha)
-# ------------------------------------------------------------
-IFS=' ' read -r -a POWER_ALPHAS <<< "${POWER_ALPHAS_STR}"
+# ============================================================
+# power
+# ============================================================
 
-for ALPHA in "${POWER_ALPHAS[@]}"; do
+for ALPHA in "${POWER_ALPHAS_ARR[@]}"; do
     run_one \
         "power" \
         "${ALPHA}" \
         "2.0" \
-        "${RESULTS_BASE}/${DATA_TYPE}/${CORPUS}/${MODEL}/power/alpha_${ALPHA}"
+        "${BASE_SAVE_LOC}/power/alpha_${ALPHA}" \
+        "${BASE_SAVE_LOC}/power/alpha_${ALPHA}"
 done
 
-# ------------------------------------------------------------
-# exp (subfolder by base)
-# ------------------------------------------------------------
-IFS=' ' read -r -a EXP_BASES <<< "${EXP_BASES_STR}"
+# ============================================================
+# exp
+# ============================================================
 
-for BASE in "${EXP_BASES[@]}"; do
+for BASE in "${EXP_BASES_ARR[@]}"; do
     run_one \
         "exp" \
         "1.0" \
         "${BASE}" \
-        "${RESULTS_BASE}/${DATA_TYPE}/${CORPUS}/${MODEL}/exp/base_${BASE}"
+        "${BASE_SAVE_LOC}/exp/base_${BASE}" \
+        "${BASE_SAVE_LOC}/exp/base_${BASE}"
 done
 
-echo
-echo "Finished successfully for problem: ${PROBLEM}"
+echo "Finished successfully."

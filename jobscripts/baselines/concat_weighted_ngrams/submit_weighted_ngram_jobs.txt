@@ -1,6 +1,6 @@
 #!/bin/bash --login
 
-#SBATCH -J submit_concat_ngrams
+#SBATCH -J submit_weighted_ngrams
 #SBATCH -p himem
 #SBATCH -t 7-0
 #SBATCH -n 1
@@ -14,29 +14,48 @@ module load apps/binapps/anaconda3/2024.10
 # Activate the environment
 conda activate venv
 
+# ============================================================
+# Central shared settings
+# ============================================================
+
 PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
-DATASET_BASE="/mnt/hum01-home01/d34195bc/av_datasets"
-RESULTS_BASE="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat_v2"
-MODEL_BASE="/mnt/hum01-home01/d34195bc/models"
+SCRIPT_ROOT="${PROJECT_ROOT}/scripts"
 
-WORKER_SCRIPT="${PROJECT_ROOT}/jobscripts/baselines/concat_weighted_ngrams/run_weighted_ngram_array.txt"
-JOBSCRIPT_DIR="${PROJECT_ROOT}/jobscripts/generated_weighted_ngram_tracing"
-LOG_DIR="/mnt/hum01-home01/d34195bc/slurm_logs/weighted_ngram_tracing_concat"
-PYTHON_SCRIPT="${PROJECT_ROOT}/scripts/weighted_ngram_tracing_concat.py"
+DATA_ROOT="/mnt/hum01-home01/d34195bc/av_datasets"
+MODEL_ROOT="/mnt/hum01-home01/d34195bc/models"
+EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
 
-mkdir -p "${JOBSCRIPT_DIR}"
+# Generic array jobscript that actually does the work
+JOB_SCRIPT="${PROJECT_ROOT}/jobscripts/baselines/concat_weighted_ngrams/run_weighted_ngram_array.txt"
+
+# Experiment naming
+EXPERIMENT_NAME="weighted_ngram_tracing_concat_v2"
+
+# Problem list file name to look for
+PROBLEM_LIST_NAME="agg_problem_list.txt"
+
+# Python script
+PYTHON_SCRIPT="weighted_ngram_tracing_concat.py"
+
+# Logs
+LOG_DIR="${PROJECT_ROOT}/slurm_logs"
 mkdir -p "${LOG_DIR}"
 
-# ------------------------------------------------------------
-# Configure here
-# ------------------------------------------------------------
+# Whether to chain each submitted job after the last one
+CHAIN_JOBS=false
+
+# Shared SLURM settings for child jobs
+CHILD_PARTITION="himem"
+CHILD_TIME="7-0"
+CHILD_NTASKS="1"
+CHILD_MEM="64G"
+
+# ============================================================
+# Lists to edit
+# ============================================================
+
 MODEL_LIST=(
     "gpt2"
-)
-
-DATA_TYPES=(
-    "training"
-    "test"
 )
 
 CORPORA=(
@@ -56,6 +75,11 @@ CORPORA=(
     "Yelp"
 )
 
+DATA_TYPES=(
+    "test"
+    "training"
+)
+
 POWER_ALPHAS=(
     "0.5"
     "1.0"
@@ -70,70 +94,111 @@ EXP_BASES=(
     "3.0"
 )
 
-join_by_space() {
-    local IFS=" "
-    echo "$*"
+# ============================================================
+# Helpers
+# ============================================================
+
+slugify() {
+    local x="$1"
+    x="${x,,}"        # lowercase
+    x="${x// /_}"     # spaces -> underscores
+    x="${x//\'/}"     # remove apostrophes
+    x="${x//,/}"      # remove commas
+    x="${x//\//_}"    # slashes -> underscores
+    x="${x//(/}"      # remove (
+    x="${x//)/}"      # remove )
+    printf '%s\n' "$x"
 }
 
-POWER_ALPHAS_STR="$(join_by_space "${POWER_ALPHAS[@]}")"
-EXP_BASES_STR="$(join_by_space "${EXP_BASES[@]}")"
+count_nonempty_lines() {
+    local file="$1"
+    awk 'NF {c++} END {print c+0}' "$file"
+}
 
-for DATA_TYPE in "${DATA_TYPES[@]}"; do
-    METADATA_LOC="${DATASET_BASE}/${DATA_TYPE}/metadata.rds"
+# ============================================================
+# Submit loop
+# ============================================================
 
-    for CORPUS in "${CORPORA[@]}"; do
-        PROBLEM_LIST="${DATASET_BASE}/${DATA_TYPE}/${CORPUS}/agg_problem_list.txt"
+PREV_JOB_ID=""
 
-        if [[ ! -f "${PROBLEM_LIST}" ]]; then
-            echo "Skipping ${DATA_TYPE} / ${CORPUS} - missing problem list"
-            continue
-        fi
+for MODEL in "${MODEL_LIST[@]}"; do
+    for DATA_TYPE in "${DATA_TYPES[@]}"; do
+        for CORPUS in "${CORPORA[@]}"; do
 
-        N_PROBLEMS=$(awk 'NF {c++} END {print c+0}' "${PROBLEM_LIST}")
+            PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
 
-        if [[ "${N_PROBLEMS}" -eq 0 ]]; then
-            echo "Skipping ${DATA_TYPE} / ${CORPUS} - no problems found"
-            continue
-        fi
+            if [[ ! -f "${PROBLEM_LIST}" ]]; then
+                echo "Skipping missing problem list:"
+                echo "  ${PROBLEM_LIST}"
+                echo
+                continue
+            fi
 
-        for MODEL in "${MODEL_LIST[@]}"; do
-            MODEL_LOC="${MODEL_BASE}/${MODEL}"
+            NUM_TASKS="$(count_nonempty_lines "${PROBLEM_LIST}")"
 
-            SAFE_NAME=$(printf '%s' "${DATA_TYPE}_${CORPUS}_${MODEL}" | sed 's/[^A-Za-z0-9._-]/_/g')
-            JOBSCRIPT_LOC="${JOBSCRIPT_DIR}/${SAFE_NAME}.sbatch"
+            if [[ "${NUM_TASKS}" -eq 0 ]]; then
+                echo "Skipping empty problem list:"
+                echo "  ${PROBLEM_LIST}"
+                echo
+                continue
+            fi
 
-            cat > "${JOBSCRIPT_LOC}" <<EOF
-#!/bin/bash --login
-#SBATCH -J wng_${SAFE_NAME}
-#SBATCH -a 1-${N_PROBLEMS}
-#SBATCH -p himem
-#SBATCH -t 7-0
-#SBATCH -n 1
-#SBATCH --mem=64G
-#SBATCH -o ${LOG_DIR}/${SAFE_NAME}_%A_%a.out
-#SBATCH -e ${LOG_DIR}/${SAFE_NAME}_%A_%a.err
+            JOB_NAME="wngr_$(slugify "${CORPUS}")_$(slugify "${DATA_TYPE}")_$(slugify "${MODEL}")"
 
-set -euo pipefail
+            echo "------------------------------------------------------------"
+            echo "Submitting:"
+            echo "  CORPUS       = ${CORPUS}"
+            echo "  DATA_TYPE    = ${DATA_TYPE}"
+            echo "  MODEL        = ${MODEL}"
+            echo "  PROBLEM_LIST = ${PROBLEM_LIST}"
+            echo "  NUM_TASKS    = ${NUM_TASKS}"
+            echo "  JOB_NAME     = ${JOB_NAME}"
+            echo "  POWER_ALPHAS = ${POWER_ALPHAS[*]}"
+            echo "  EXP_BASES    = ${EXP_BASES[*]}"
 
-export DATA_TYPE="${DATA_TYPE}"
-export CORPUS="${CORPUS}"
-export MODEL="${MODEL}"
-export MODEL_LOC="${MODEL_LOC}"
-export PROBLEM_LIST="${PROBLEM_LIST}"
-export DATASET_BASE="${DATASET_BASE}"
-export RESULTS_BASE="${RESULTS_BASE}"
-export METADATA_LOC="${METADATA_LOC}"
-export PYTHON_SCRIPT="${PYTHON_SCRIPT}"
-export POWER_ALPHAS_STR="${POWER_ALPHAS_STR}"
-export EXP_BASES_STR="${EXP_BASES_STR}"
+            SBATCH_ARGS=(
+                --parsable
+                --job-name "${JOB_NAME}"
+                --array "1-${NUM_TASKS}"
+                -p "${CHILD_PARTITION}"
+                -t "${CHILD_TIME}"
+                -n "${CHILD_NTASKS}"
+                --mem "${CHILD_MEM}"
+                -o "${LOG_DIR}/%x_%A_%a.out"
+                -e "${LOG_DIR}/%x_%A_%a.err"
+            )
 
-bash "${WORKER_SCRIPT}"
-EOF
+            if [[ "${CHAIN_JOBS}" == "true" && -n "${PREV_JOB_ID}" ]]; then
+                SBATCH_ARGS+=(--dependency="afterok:${PREV_JOB_ID}")
+                echo "  DEPENDS ON = ${PREV_JOB_ID}"
+            fi
 
-            chmod +x "${JOBSCRIPT_LOC}"
+            JOB_ID="$(
+                CORPUS="${CORPUS}" \
+                DATA_TYPE="${DATA_TYPE}" \
+                MODEL="${MODEL}" \
+                PROJECT_ROOT="${PROJECT_ROOT}" \
+                SCRIPT_ROOT="${SCRIPT_ROOT}" \
+                DATA_ROOT="${DATA_ROOT}" \
+                MODEL_ROOT="${MODEL_ROOT}" \
+                EXPERIMENT_ROOT="${EXPERIMENT_ROOT}" \
+                EXPERIMENT_NAME="${EXPERIMENT_NAME}" \
+                PROBLEM_LIST_NAME="${PROBLEM_LIST_NAME}" \
+                PYTHON_SCRIPT="${PYTHON_SCRIPT}" \
+                POWER_ALPHAS="${POWER_ALPHAS[*]}" \
+                EXP_BASES="${EXP_BASES[*]}" \
+                sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
+            )"
 
-            echo "Submitting ${JOBSCRIPT_LOC}"
-            sbatch "${JOBSCRIPT_LOC}"
+            echo "  SUBMITTED ID = ${JOB_ID}"
+            echo
+
+            if [[ "${CHAIN_JOBS}" == "true" ]]; then
+                PREV_JOB_ID="${JOB_ID}"
+            fi
+
         done
     done
 done
+
+echo "All submissions complete."
