@@ -1,4 +1,11 @@
 #!/bin/bash --login
+
+#SBATCH -J submit_concat_ngrams
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
 set -euo pipefail
 
 PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
