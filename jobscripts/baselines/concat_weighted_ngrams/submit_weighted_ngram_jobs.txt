@@ -50,10 +50,6 @@ CORPORA=(
     "Yelp"
 )
 
-CORPORA=(
-    "ACL"
-)
-
 POWER_ALPHAS=(
     "0.5"
     "1.0"
