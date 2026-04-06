@@ -10,7 +10,7 @@ set -e
 
 module load apps/gcc/R/4.5.0
 
-BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat"
+BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat_v2"
 SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/calculate_performance.R"
 
 GROUPING_COLS="data_type,corpus,scoring_model,min_token_size,weight,alpha,base"
@@ -21,15 +21,14 @@ PROGRESS="FALSE"
 SAVE_RDS="TRUE"
 
 INPUT_FILES=(
-  "completed_adj_token_size_raw.rds"
-  "completed_like_for_like_raw.rds"
+  "combined_scores_raw.rds"
 )
 
 for INPUT_FILE in "${INPUT_FILES[@]}"; do
 
     INPUT_LOC="${BASE_DIR}/${INPUT_FILE}"
 
-    if [[ "${INPUT_FILE}" == "completed_adj_token_size_raw.rds" ]]; then
+    if [[ "${INPUT_FILE}" == "combined_scores_raw.rds" ]]; then
         SAVE_LOC_UNCALIBRATED="${BASE_DIR}/performance_uncalibrated_raw.xlsx"
         SAVE_LOC_CALIBRATED="${BASE_DIR}/performance_calibrated_raw.xlsx"
     elif [[ "${INPUT_FILE}" == "completed_like_for_like_raw.rds" ]]; then
