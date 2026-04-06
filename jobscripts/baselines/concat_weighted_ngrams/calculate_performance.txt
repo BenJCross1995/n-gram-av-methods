@@ -10,7 +10,7 @@ set -e
 
 module load apps/gcc/R/4.5.0
 
-BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat_v2"
+BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat_v2/_results"
 SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/calculate_performance.R"
 
 GROUPING_COLS="data_type,corpus,scoring_model,min_token_size,weight,alpha,base"
