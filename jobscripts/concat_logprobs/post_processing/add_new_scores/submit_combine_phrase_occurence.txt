@@ -7,7 +7,7 @@ set -euo pipefail
 # ============================================================
 BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs"
 PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
-JOBSCRIPT_DIR="${PROJECT_DIR}/jobscripts/concat_logprobs/post_processing"
+JOBSCRIPT_DIR="${PROJECT_DIR}/jobscripts/concat_logprobs/post_processing/add_new_scores"
 
 PYTHON_COMBINE_SCRIPT="${PROJECT_DIR}/scripts/combine_files.py"
 ARRAY_SCRIPT="${JOBSCRIPT_DIR}/combine_files_array.txt"
