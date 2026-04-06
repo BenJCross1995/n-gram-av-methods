@@ -43,6 +43,8 @@ for INPUT_FILE in "${INPUT_FILES[@]}"; do
     echo "SAVE_LOC_CALIBRATED=${SAVE_LOC_CALIBRATED}"
     echo "--------------------------------------------------"
 
+    Rscript -e 'if (file.exists("renv/activate.R")) source("renv/activate.R"); library(dplyr); library(purrr); library(tibble); library(writexl); library(idiolect); cat("Package load test passed\n")'
+
     Rscript "${SCRIPT_LOC}" \
       --input_loc "${INPUT_LOC}" \
       --save_loc_uncalibrated "${SAVE_LOC_UNCALIBRATED}" \
