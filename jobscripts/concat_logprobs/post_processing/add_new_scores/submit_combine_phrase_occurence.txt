@@ -196,7 +196,10 @@ submit_wrap_job() {
         cmd+=(--dependency="${dependency}")
     fi
 
-    cmd+=(--wrap "${script_body}")
+    local escaped_body
+    escaped_body=$(printf '%q' "${script_body}")
+
+    cmd+=(--wrap "bash --login -c ${escaped_body}")
 
     "${cmd[@]}"
 }
