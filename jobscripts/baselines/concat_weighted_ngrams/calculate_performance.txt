@@ -5,13 +5,16 @@
 #SBATCH -t 7-0
 #SBATCH -n 1
 #SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%j.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%j.err
 
-set -e
+set -euo pipefail
 
-module load apps/gcc/R/4.5.0
+PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+R_MODULE="apps/gcc/R/4.5.0"
 
 BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/weighted_ngram_tracing_concat_v2/_results"
-SCRIPT_LOC="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/scripts/calculate_performance.R"
+SCRIPT_LOC="${PROJECT_DIR}/scripts/calculate_performance.R"
 
 GROUPING_COLS="data_type,corpus,scoring_model,min_token_size,weight,alpha,base"
 SCORING_COLS="simpson_score,jaccard_score"
@@ -19,6 +22,35 @@ SCORING_COLS="simpson_score,jaccard_score"
 BY="case"
 PROGRESS="FALSE"
 SAVE_RDS="TRUE"
+
+clean_conda_from_path() {
+    conda deactivate 2>/dev/null || true
+
+    unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_SHLVL
+    unset XML2_CONFIG
+    unset PKG_CONFIG_LIBDIR
+    unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+
+    PATH="$(echo "$PATH" | tr ':' '\n' | grep -v 'anaconda3' | paste -sd ':' -)"
+    export PATH
+    hash -r
+}
+
+load_r_env() {
+    clean_conda_from_path
+    module purge
+    module load "${R_MODULE}"
+}
+
+load_r_env
+
+cd "${PROJECT_DIR}"
+
+echo "----------------------------------------"
+echo "R: $(which R)"
+echo "Rscript: $(which Rscript)"
+echo "Working directory: $(pwd)"
+echo "----------------------------------------"
 
 INPUT_FILES=(
   "combined_scores_raw.rds"
@@ -28,12 +60,20 @@ for INPUT_FILE in "${INPUT_FILES[@]}"; do
 
     INPUT_LOC="${BASE_DIR}/${INPUT_FILE}"
 
+    if [[ ! -f "${INPUT_LOC}" ]]; then
+        echo "Missing input file: ${INPUT_LOC}"
+        exit 1
+    fi
+
     if [[ "${INPUT_FILE}" == "combined_scores_raw.rds" ]]; then
         SAVE_LOC_UNCALIBRATED="${BASE_DIR}/performance_uncalibrated_raw.xlsx"
         SAVE_LOC_CALIBRATED="${BASE_DIR}/performance_calibrated_raw.xlsx"
     elif [[ "${INPUT_FILE}" == "completed_like_for_like_raw.rds" ]]; then
         SAVE_LOC_UNCALIBRATED="${BASE_DIR}/lfl_performance_uncalibrated_raw.xlsx"
         SAVE_LOC_CALIBRATED="${BASE_DIR}/lfl_performance_calibrated_raw.xlsx"
+    else
+        echo "No save-name rule defined for ${INPUT_FILE}"
+        exit 1
     fi
 
     echo "--------------------------------------------------"
