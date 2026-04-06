@@ -566,7 +566,23 @@ def combine_xlsx_files(
                 ignore_index=True,
                 sort=False
             )
+            
+    # If metadata was only used to expand other sheets and the output is .rds,
+    # do not try to write the metadata sheet as well.
+    output_file_type = get_file_type(save_loc)
 
+    if (
+        output_file_type == ".rds"
+        and metadata_columns
+        and metadata_sheet_name in combined_dict
+        and len(combined_dict) > 1
+    ):
+        combined_dict = {
+            sheet_name: df
+            for sheet_name, df in combined_dict.items()
+            if sheet_name != metadata_sheet_name
+        }
+        
     if not combined_dict:
         print(f"No requested sheets found, skipping: {data_loc}")
         sys.exit(0)
