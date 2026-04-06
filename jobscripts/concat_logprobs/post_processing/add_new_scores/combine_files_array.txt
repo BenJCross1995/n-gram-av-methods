@@ -66,6 +66,15 @@ if [[ ! -d "${DATA_LOC}" ]]; then
     exit 0
 fi
 
+shopt -s nullglob
+xlsx_files=("${DATA_LOC}"/*.xlsx)
+shopt -u nullglob
+
+if [[ "${#xlsx_files[@]}" -eq 0 ]]; then
+    echo "Skipping directory with no xlsx files: ${DATA_LOC}"
+    exit 0
+fi
+
 CMD=(
     python -u "${PYTHON_COMBINE_SCRIPT}"
     --mode combine_xlsx
