@@ -18,6 +18,17 @@ This script supports two modes:
 Optional filtering is available through --complete_only:
 - If enabled, and a dataframe contains a 'completed' column,
   only rows where completed == True are kept.
+  
+Additional optional Excel functionality is available through:
+- --metadata_columns
+- --metadata_sheet_name
+
+When --metadata_columns is supplied in combine_xlsx mode and the requested
+sheets include both the metadata sheet and one or more other sheets:
+- the specified metadata columns are taken from the metadata sheet
+- deduplicated to a single row per file
+- replicated to match the number of rows in each non-metadata sheet
+- prepended to the left of that non-metadata sheet
 """
 
 import argparse
@@ -62,6 +73,10 @@ def parse_args():
     ap.add_argument("--overwrite", action="store_true")
     ap.add_argument("--complete_only", action="store_true")
 
+    # New optional metadata-merge functionality for combine_xlsx
+    ap.add_argument("--metadata_sheet_name", type=str, default="metadata")
+    ap.add_argument("--metadata_columns", nargs="*", default=None)
+    
     return ap.parse_args()
 
 
@@ -285,6 +300,140 @@ def filter_complete_result(result, complete_only: bool):
 
     return filter_complete_df(result, complete_only=True)
 
+def should_skip_file_from_metadata(
+    metadata_df: pd.DataFrame | None,
+    complete_only: bool,
+    file_path: str
+) -> bool:
+    """
+    Decide whether an Excel file should be skipped based on the metadata sheet.
+
+    If complete_only is True and the metadata sheet contains a 'completed'
+    column, the whole file is skipped when there are no completed rows.
+
+    Parameters
+    ----------
+    metadata_df : pd.DataFrame | None
+        Metadata dataframe for the current file.
+    complete_only : bool
+        Whether completed-only filtering is enabled.
+    file_path : str
+        Current file path, used for logging.
+
+    Returns
+    -------
+    bool
+        True if the file should be skipped, otherwise False.
+    """
+    if not complete_only:
+        return False
+
+    if metadata_df is None:
+        return False
+
+    if "completed" not in metadata_df.columns:
+        return False
+
+    completed_metadata = metadata_df[metadata_df["completed"] == True]
+    if completed_metadata.empty:
+        print(f"Skipping file because metadata.completed != True: {file_path}")
+        return True
+
+    return False
+
+def extract_metadata_row(
+    metadata_df: pd.DataFrame,
+    metadata_columns: list[str],
+    file_path: str
+) -> pd.DataFrame:
+    """
+    Extract a single deduplicated metadata row from the metadata sheet.
+
+    Parameters
+    ----------
+    metadata_df : pd.DataFrame
+        Metadata dataframe for one Excel file.
+    metadata_columns : list[str]
+        Columns to select from metadata.
+    file_path : str
+        Current file path, used for clearer error messages.
+
+    Returns
+    -------
+    pd.DataFrame
+        A one-row dataframe containing the requested metadata columns.
+
+    Raises
+    ------
+    KeyError
+        If any requested metadata columns are missing.
+    ValueError
+        If no metadata rows remain after selection/deduplication.
+    """
+    missing_cols = [col for col in metadata_columns if col not in metadata_df.columns]
+    if missing_cols:
+        raise KeyError(
+            f"Missing metadata columns in {file_path}: {missing_cols}"
+        )
+
+    metadata_row = metadata_df[metadata_columns].drop_duplicates().reset_index(drop=True)
+
+    if metadata_row.empty:
+        raise ValueError(
+            f"No metadata rows available after deduplication in {file_path}"
+        )
+
+    if metadata_row.shape[0] > 1:
+        print(
+            f"Warning: metadata deduplication in {file_path} produced "
+            f"{metadata_row.shape[0]} rows. Using the first row."
+        )
+
+    return metadata_row.iloc[[0]].copy()
+
+def prepend_metadata_to_sheet(
+    sheet_df: pd.DataFrame,
+    metadata_row: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Replicate a single metadata row to match a sheet and prepend it.
+
+    If the target sheet already contains any of the metadata columns,
+    those columns are removed from the target sheet before concatenation
+    so the metadata columns appear only once on the left.
+
+    Parameters
+    ----------
+    sheet_df : pd.DataFrame
+        Target non-metadata sheet dataframe.
+    metadata_row : pd.DataFrame
+        One-row metadata dataframe.
+
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe with replicated metadata columns prepended.
+    """
+    if sheet_df.empty:
+        # preserve column order even for empty frames
+        target_df = sheet_df.drop(columns=metadata_row.columns, errors="ignore").copy()
+        empty_metadata = pd.DataFrame(columns=metadata_row.columns)
+        return pd.concat(
+            [empty_metadata.reset_index(drop=True), target_df.reset_index(drop=True)],
+            axis=1
+        )
+
+    target_df = sheet_df.drop(columns=metadata_row.columns, errors="ignore").reset_index(drop=True)
+
+    metadata_repeated = pd.DataFrame({
+        col: [metadata_row.iloc[0][col]] * len(target_df)
+        for col in metadata_row.columns
+    })
+
+    return pd.concat(
+        [metadata_repeated.reset_index(drop=True), target_df],
+        axis=1
+    )
 
 def combine_xlsx_files(
     data_loc: str,
@@ -292,7 +441,9 @@ def combine_xlsx_files(
     sheet_names: list[str],
     overwrite: bool = False,
     combine_level: str | None = None,
-    complete_only: bool = False
+    complete_only: bool = False,
+    metadata_sheet_name: str = "metadata",
+    metadata_columns: list[str] | None = None
 ) -> None:
     """
     Combine requested sheets from all .xlsx files in a directory.
@@ -303,6 +454,11 @@ def combine_xlsx_files(
     - concatenate each sheet independently
     - optionally filter to completed rows only
     - write the combined result to save_loc
+
+    Optional metadata expansion:
+    - if metadata_columns is supplied and the metadata sheet is present,
+      each non-metadata requested sheet gets those metadata columns
+      prepended from the metadata sheet of the same file
 
     Parameters
     ----------
@@ -319,6 +475,11 @@ def combine_xlsx_files(
     complete_only : bool, default=False
         If True, and a dataframe contains a 'completed' column,
         keep only rows where completed == True.
+    metadata_sheet_name : str, default='metadata'
+        Name of the metadata sheet.
+    metadata_columns : list[str] | None, default=None
+        Metadata columns to extract, deduplicate, replicate, and prepend
+        to each requested non-metadata sheet.
     """
     log_header("combine_xlsx", combine_level, save_loc, complete_only=complete_only)
 
@@ -328,6 +489,12 @@ def combine_xlsx_files(
     if not os.path.isdir(data_loc):
         print(f"Input directory does not exist, skipping: {data_loc}")
         sys.exit(0)
+
+    if metadata_columns and metadata_sheet_name not in sheet_names:
+        raise ValueError(
+            "--metadata_columns was provided but the metadata sheet "
+            f"'{metadata_sheet_name}' is not included in --sheet_names."
+        )
 
     # Discover input Excel files
     file_list = list_xlsx_files(data_loc)
@@ -342,10 +509,53 @@ def combine_xlsx_files(
     for file in file_list:
         file_data = read_excel_sheets(file, sheet_names=sheet_names)
 
-        # Append sheet data only when that sheet exists in the current file
+        if not file_data:
+            continue
+
+        metadata_df = file_data.get(metadata_sheet_name)
+
+        # File-level skip based on metadata.completed
+        if should_skip_file_from_metadata(
+            metadata_df=metadata_df,
+            complete_only=complete_only,
+            file_path=file
+        ):
+            continue
+
+        metadata_row = None
+        if metadata_columns:
+            if metadata_df is None:
+                print(
+                    f"Warning: metadata sheet '{metadata_sheet_name}' not found "
+                    f"in {file}. Skipping metadata prepend for this file."
+                )
+            else:
+                metadata_row = extract_metadata_row(
+                    metadata_df=metadata_df,
+                    metadata_columns=metadata_columns,
+                    file_path=file
+                )
+
+        # Append sheet data
         for sheet_name in sheet_names:
-            if sheet_name in file_data:
-                result_dict[sheet_name].append(file_data[sheet_name])
+            if sheet_name not in file_data:
+                continue
+
+            current_df = file_data[sheet_name]
+
+            # Keep metadata sheet as-is
+            if sheet_name == metadata_sheet_name:
+                result_dict[sheet_name].append(current_df)
+                continue
+
+            # Optionally prepend replicated metadata
+            if metadata_row is not None:
+                current_df = prepend_metadata_to_sheet(
+                    sheet_df=current_df,
+                    metadata_row=metadata_row
+                )
+
+            result_dict[sheet_name].append(current_df)
 
     # Concatenate each collected sheet independently
     combined_dict = {}
@@ -464,7 +674,9 @@ def main():
             sheet_names=args.sheet_names,
             overwrite=args.overwrite,
             combine_level=args.combine_level,
-            complete_only=args.complete_only
+            complete_only=args.complete_only,
+            metadata_sheet_name=args.metadata_sheet_name,
+            metadata_columns=args.metadata_columns
         )
 
     elif args.mode == "combine_rds":

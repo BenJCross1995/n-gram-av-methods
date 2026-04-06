@@ -1,0 +1,525 @@
+#!/bin/bash --login
+
+set -euo pipefail
+
+# ============================================================
+# Core paths
+# ============================================================
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs"
+PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+JOBSCRIPT_DIR="${PROJECT_DIR}/jobscripts/concat_logprobs/post_processing"
+
+PYTHON_COMBINE_SCRIPT="${PROJECT_DIR}/scripts/combine_files.py"
+ARRAY_SCRIPT="${JOBSCRIPT_DIR}/combine_files_array.txt"
+
+# ============================================================
+# Environment
+# ============================================================
+CONDA_MODULE="apps/binapps/anaconda3/2024.10"
+CONDA_ENV="venv"
+
+# ============================================================
+# What to combine
+# ============================================================
+OUTPUT_STEM="phrase_occurrence_score_raw"
+
+SHEET_NAMES=(
+    "metadata"
+    "phrase occurrence score"
+)
+
+METADATA_SHEET_NAME="metadata"
+
+# Metadat columns to be repeated
+METADATA_COLUMNS=(
+    "data_type"
+    "corpus"
+    "scoring_model"
+    "max_context_tokens"
+    "problem"
+    "known_author"
+    "unknown_author"
+    "target"
+    "completed"
+)
+
+# ============================================================
+# Dataset scope
+# ============================================================
+MODEL_LIST=(
+    "gpt2"
+)
+
+CORPORA=(
+    "ACL"
+    "All-the-news"
+    "Amazon"
+    "Enron Cleaned"
+    "IMDB"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "Reddit"
+    "StackExchange"
+    "The Apricity"
+    "The Telegraph"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+CORPORA=(
+    "ACL"
+)
+
+DATA_TYPES=(
+    "test"
+    "training"
+)
+
+RAW_DIRS=(
+    "raw"
+    "raw_0"
+    "raw_5"
+    "raw_10"
+    "raw_20"
+    "raw_30"
+    "raw_40"
+    "raw_50"
+    "raw_60"
+    "raw_70"
+    "raw_80"
+    "raw_90"
+    "raw_100"
+    "raw_200"
+    "raw_300"
+    "raw_400"
+    "raw_500"
+    "raw_600"
+    "raw_700"
+    "raw_800"
+    "raw_900"
+    "raw_1000"
+)
+
+# ============================================================
+# Behaviour
+# ============================================================
+COMPLETE_ONLY="true"
+
+STEP1_OVERWRITE="true"
+STEP2_OVERWRITE="true"   # model-level combine
+STEP3_OVERWRITE="true"   # corpus-level combine
+STEP4_OVERWRITE="true"   # data_type-level combine
+STEP5_OVERWRITE="true"   # overall combine
+
+COMBINE_ARRAY_MAX_CONCURRENT=100
+
+# ============================================================
+# Task/log dirs
+# ============================================================
+TASK_DIR="${BASE_LOC}/_results/slurm_task_lists"
+LOG_DIR="${PROJECT_DIR}/slurm_logs/postprocessing"
+
+mkdir -p "${TASK_DIR}" "${LOG_DIR}" "${BASE_LOC}/_results"
+
+# ============================================================
+# Helper strings for export
+# ============================================================
+join_by_pipe() {
+    local IFS='|'
+    echo "$*"
+}
+
+SHEET_NAMES_STR="$(join_by_pipe "${SHEET_NAMES[@]}")"
+METADATA_COLUMNS_STR="$(join_by_pipe "${METADATA_COLUMNS[@]}")"
+MODEL_LIST_STR="$(join_by_pipe "${MODEL_LIST[@]}")"
+CORPORA_STR="$(join_by_pipe "${CORPORA[@]}")"
+DATA_TYPES_STR="$(join_by_pipe "${DATA_TYPES[@]}")"
+RAW_DIRS_STR="$(join_by_pipe "${RAW_DIRS[@]}")"
+
+export BASE_LOC
+export PROJECT_DIR
+export PYTHON_COMBINE_SCRIPT
+export ARRAY_SCRIPT
+export CONDA_MODULE
+export CONDA_ENV
+export OUTPUT_STEM
+export SHEET_NAMES_STR
+export METADATA_SHEET_NAME
+export METADATA_COLUMNS_STR
+export MODEL_LIST_STR
+export CORPORA_STR
+export DATA_TYPES_STR
+export RAW_DIRS_STR
+export COMPLETE_ONLY
+export STEP1_OVERWRITE
+export STEP2_OVERWRITE
+export STEP3_OVERWRITE
+export STEP4_OVERWRITE
+export STEP5_OVERWRITE
+export LOG_DIR
+
+# ============================================================
+# Helpers
+# ============================================================
+sanitize_name() {
+    echo "$1" | tr -cs '[:alnum:]' '_'
+}
+
+submit_wrap_job() {
+    local job_name="$1"
+    local dependency="$2"
+    local script_body="$3"
+
+    local cmd=(
+        sbatch
+        --parsable
+        -J "${job_name}"
+        -p himem
+        -t 7-0
+        -n 1
+        --mem=64G
+        -o "${LOG_DIR}/%x-%A.out"
+        -e "${LOG_DIR}/%x-%A.err"
+        --export=ALL
+    )
+
+    if [[ -n "${dependency}" ]]; then
+        cmd+=(--dependency="${dependency}")
+    fi
+
+    cmd+=(--wrap "${script_body}")
+
+    "${cmd[@]}"
+}
+
+build_pair_combine_body() {
+    local data_type="$1"
+    local corpus="$2"
+
+    cat <<EOF
+#!/bin/bash --login
+set -euo pipefail
+
+module purge
+module load "${CONDA_MODULE}"
+conda activate "${CONDA_ENV}"
+
+IFS='|' read -r -a MODEL_LIST <<< "\${MODEL_LIST_STR}"
+IFS='|' read -r -a RAW_DIRS <<< "\${RAW_DIRS_STR}"
+
+run_combine_rds() {
+    local combine_level="\$1"
+    local save_loc="\$2"
+    local overwrite_flag="\$3"
+    shift 3
+    local input_files=( "\$@" )
+
+    if [[ "\${#input_files[@]}" -eq 0 ]]; then
+        echo "No input files for \${combine_level} -> \${save_loc}; skipping"
+        return 0
+    fi
+
+    local cmd=(
+        python -u "\${PYTHON_COMBINE_SCRIPT}"
+        --mode combine_rds
+        --combine_level "\${combine_level}"
+        --save_loc "\${save_loc}"
+        --input_files "\${input_files[@]}"
+    )
+
+    if [[ "\${overwrite_flag}" == "true" ]]; then
+        cmd+=(--overwrite)
+    fi
+
+    if [[ "\${COMPLETE_ONLY}" == "true" ]]; then
+        cmd+=(--complete_only)
+    fi
+
+    echo "Combining level=\${combine_level}"
+    echo "  SAVE_LOC=\${save_loc}"
+    printf '  INPUT=%s\n' "\${input_files[@]}"
+
+    "\${cmd[@]}"
+}
+
+DATA_TYPE="${data_type}"
+CORPUS="${corpus}"
+
+echo "Starting pair-level combine for DATA_TYPE=\${DATA_TYPE}, CORPUS=\${CORPUS}"
+
+for MODEL in "\${MODEL_LIST[@]}"; do
+    MODEL_LOC="\${BASE_LOC}/\${DATA_TYPE}/\${CORPUS}/\${MODEL}"
+    RAW_RESULTS_DIR="\${MODEL_LOC}/raw_results"
+    SAVE_LOC="\${MODEL_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+
+    mkdir -p "\${MODEL_LOC}/_results"
+
+    if [[ ! -d "\${RAW_RESULTS_DIR}" ]]; then
+        echo "Skipping missing raw_results directory: \${RAW_RESULTS_DIR}"
+        continue
+    fi
+
+    INPUT_FILES=()
+    for RAW_DIR in "\${RAW_DIRS[@]}"; do
+        FILE="\${RAW_RESULTS_DIR}/\${RAW_DIR}_\${OUTPUT_STEM}.rds"
+        [[ -f "\${FILE}" ]] && INPUT_FILES+=("\${FILE}")
+    done
+
+    run_combine_rds model "\${SAVE_LOC}" "\${STEP2_OVERWRITE}" "\${INPUT_FILES[@]}"
+done
+
+CORPUS_LOC="\${BASE_LOC}/\${DATA_TYPE}/\${CORPUS}"
+SAVE_LOC="\${CORPUS_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+
+mkdir -p "\${CORPUS_LOC}/_results"
+
+INPUT_FILES=()
+for MODEL in "\${MODEL_LIST[@]}"; do
+    FILE="\${CORPUS_LOC}/\${MODEL}/_results/combined_\${OUTPUT_STEM}.rds"
+    [[ -f "\${FILE}" ]] && INPUT_FILES+=("\${FILE}")
+done
+
+run_combine_rds corpus "\${SAVE_LOC}" "\${STEP3_OVERWRITE}" "\${INPUT_FILES[@]}"
+
+echo "Finished pair-level combine for DATA_TYPE=\${DATA_TYPE}, CORPUS=\${CORPUS}"
+EOF
+}
+
+build_datatype_combine_body() {
+    local data_type="$1"
+
+    cat <<EOF
+#!/bin/bash --login
+set -euo pipefail
+
+module purge
+module load "${CONDA_MODULE}"
+conda activate "${CONDA_ENV}"
+
+IFS='|' read -r -a CORPORA <<< "\${CORPORA_STR}"
+
+run_combine_rds() {
+    local combine_level="\$1"
+    local save_loc="\$2"
+    local overwrite_flag="\$3"
+    shift 3
+    local input_files=( "\$@" )
+
+    if [[ "\${#input_files[@]}" -eq 0 ]]; then
+        echo "No input files for \${combine_level} -> \${save_loc}; skipping"
+        return 0
+    fi
+
+    local cmd=(
+        python -u "\${PYTHON_COMBINE_SCRIPT}"
+        --mode combine_rds
+        --combine_level "\${combine_level}"
+        --save_loc "\${save_loc}"
+        --input_files "\${input_files[@]}"
+    )
+
+    if [[ "\${overwrite_flag}" == "true" ]]; then
+        cmd+=(--overwrite)
+    fi
+
+    if [[ "\${COMPLETE_ONLY}" == "true" ]]; then
+        cmd+=(--complete_only)
+    fi
+
+    echo "Combining level=\${combine_level}"
+    echo "  SAVE_LOC=\${save_loc}"
+    printf '  INPUT=%s\n' "\${input_files[@]}"
+
+    "\${cmd[@]}"
+}
+
+DATA_TYPE="${data_type}"
+DATA_TYPE_LOC="\${BASE_LOC}/\${DATA_TYPE}"
+SAVE_LOC="\${DATA_TYPE_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+
+mkdir -p "\${DATA_TYPE_LOC}/_results"
+
+INPUT_FILES=()
+for CORPUS in "\${CORPORA[@]}"; do
+    FILE="\${DATA_TYPE_LOC}/\${CORPUS}/_results/combined_\${OUTPUT_STEM}.rds"
+    [[ -f "\${FILE}" ]] && INPUT_FILES+=("\${FILE}")
+done
+
+run_combine_rds data_type "\${SAVE_LOC}" "\${STEP4_OVERWRITE}" "\${INPUT_FILES[@]}"
+
+echo "Finished data_type-level combine for DATA_TYPE=\${DATA_TYPE}"
+EOF
+}
+
+build_overall_combine_body() {
+    cat <<EOF
+#!/bin/bash --login
+set -euo pipefail
+
+module purge
+module load "${CONDA_MODULE}"
+conda activate "${CONDA_ENV}"
+
+IFS='|' read -r -a DATA_TYPES <<< "\${DATA_TYPES_STR}"
+
+run_combine_rds() {
+    local combine_level="\$1"
+    local save_loc="\$2"
+    local overwrite_flag="\$3"
+    shift 3
+    local input_files=( "\$@" )
+
+    if [[ "\${#input_files[@]}" -eq 0 ]]; then
+        echo "No input files for \${combine_level} -> \${save_loc}; skipping"
+        return 0
+    fi
+
+    local cmd=(
+        python -u "\${PYTHON_COMBINE_SCRIPT}"
+        --mode combine_rds
+        --combine_level "\${combine_level}"
+        --save_loc "\${save_loc}"
+        --input_files "\${input_files[@]}"
+    )
+
+    if [[ "\${overwrite_flag}" == "true" ]]; then
+        cmd+=(--overwrite)
+    fi
+
+    if [[ "\${COMPLETE_ONLY}" == "true" ]]; then
+        cmd+=(--complete_only)
+    fi
+
+    echo "Combining level=\${combine_level}"
+    echo "  SAVE_LOC=\${save_loc}"
+    printf '  INPUT=%s\n' "\${input_files[@]}"
+
+    "\${cmd[@]}"
+}
+
+SAVE_LOC="\${BASE_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+
+INPUT_FILES=()
+for DATA_TYPE in "\${DATA_TYPES[@]}"; do
+    FILE="\${BASE_LOC}/\${DATA_TYPE}/_results/combined_\${OUTPUT_STEM}.rds"
+    [[ -f "\${FILE}" ]] && INPUT_FILES+=("\${FILE}")
+done
+
+run_combine_rds overall "\${SAVE_LOC}" "\${STEP5_OVERWRITE}" "\${INPUT_FILES[@]}"
+
+echo "Finished overall combine."
+EOF
+}
+
+# ============================================================
+# Submit pipeline
+# ============================================================
+echo "Submitting phrase occurence score combine pipeline"
+echo "OUTPUT_STEM=${OUTPUT_STEM}"
+echo "SHEETS=${SHEET_NAMES_STR}"
+
+declare -A CORPUS_JOB_IDS_BY_DATATYPE
+OVERALL_PAIR_JOB_IDS=()
+
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    for CORPUS in "${CORPORA[@]}"; do
+        safe_pair="$(sanitize_name "${DATA_TYPE}__${CORPUS}")"
+        TASK_FILE="${TASK_DIR}/combine_files_array_${safe_pair}.txt"
+        : > "${TASK_FILE}"
+
+        task_count=0
+        for MODEL in "${MODEL_LIST[@]}"; do
+            for RAW_DIR in "${RAW_DIRS[@]}"; do
+                printf '%s\t%s\t%s\t%s\n' \
+                    "${DATA_TYPE}" \
+                    "${CORPUS}" \
+                    "${MODEL}" \
+                    "${RAW_DIR}" >> "${TASK_FILE}"
+                task_count=$((task_count + 1))
+            done
+        done
+
+        if [[ "${task_count}" -eq 0 ]]; then
+            echo "No tasks for ${DATA_TYPE} / ${CORPUS}; skipping"
+            continue
+        fi
+
+        echo
+        echo "Submitting array job for ${DATA_TYPE} / ${CORPUS}"
+        echo "  TASK_FILE=${TASK_FILE}"
+        echo "  TASKS=${task_count}"
+
+        array_job_id="$(
+            sbatch --parsable \
+                -J "combine_phrase_${safe_pair}" \
+                --array="1-${task_count}%${COMBINE_ARRAY_MAX_CONCURRENT}" \
+                --export=ALL,TASK_FILE="${TASK_FILE}" \
+                "${ARRAY_SCRIPT}"
+        )"
+
+        echo "  Array job id: ${array_job_id}"
+
+        pair_body="$(build_pair_combine_body "${DATA_TYPE}" "${CORPUS}")"
+        pair_job_id="$(
+            submit_wrap_job \
+                "combine_phrase_post_${safe_pair}" \
+                "afterok:${array_job_id}" \
+                "${pair_body}"
+        )"
+
+        echo "  Pair combine job id: ${pair_job_id}"
+
+        OVERALL_PAIR_JOB_IDS+=("${pair_job_id}")
+
+        if [[ -z "${CORPUS_JOB_IDS_BY_DATATYPE[${DATA_TYPE}]:-}" ]]; then
+            CORPUS_JOB_IDS_BY_DATATYPE["${DATA_TYPE}"]="${pair_job_id}"
+        else
+            CORPUS_JOB_IDS_BY_DATATYPE["${DATA_TYPE}"]="${CORPUS_JOB_IDS_BY_DATATYPE[${DATA_TYPE}]}:${pair_job_id}"
+        fi
+    done
+done
+
+DATA_TYPE_JOB_IDS=()
+
+for DATA_TYPE in "${DATA_TYPES[@]}"; do
+    dep_ids="${CORPUS_JOB_IDS_BY_DATATYPE[${DATA_TYPE}]:-}"
+
+    if [[ -z "${dep_ids}" ]]; then
+        echo "No corpus-level jobs recorded for ${DATA_TYPE}; skipping data_type submit"
+        continue
+    fi
+
+    safe_dt="$(sanitize_name "${DATA_TYPE}")"
+    dt_body="$(build_datatype_combine_body "${DATA_TYPE}")"
+
+    dt_job_id="$(
+        submit_wrap_job \
+            "combine_phrase_dtype_${safe_dt}" \
+            "afterok:${dep_ids}" \
+            "${dt_body}"
+    )"
+
+    echo "Submitted data_type combine for ${DATA_TYPE}: ${dt_job_id}"
+    DATA_TYPE_JOB_IDS+=("${dt_job_id}")
+done
+
+if [[ "${#DATA_TYPE_JOB_IDS[@]}" -gt 0 ]]; then
+    overall_dep="afterok:$(IFS=:; echo "${DATA_TYPE_JOB_IDS[*]}")"
+    overall_body="$(build_overall_combine_body)"
+
+    overall_job_id="$(
+        submit_wrap_job \
+            "combine_phrase_overall" \
+            "${overall_dep}" \
+            "${overall_body}"
+    )"
+
+    echo
+    echo "Submitted overall combine job: ${overall_job_id}"
+else
+    echo "No data_type jobs were submitted, so no overall combine job was submitted."
+fi
+
+echo
+echo "Submission complete."

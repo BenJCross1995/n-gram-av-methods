@@ -1,0 +1,104 @@
+#!/bin/bash --login
+
+#SBATCH -J combine_files_array
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+#SBATCH -o /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A_%a.out
+#SBATCH -e /mnt/hum01-home01/d34195bc/projects/n-gram-av-methods/slurm_logs/postprocessing/%x-%A_%a.err
+
+set -euo pipefail
+
+required_env_vars=(
+    TASK_FILE
+    BASE_LOC
+    PYTHON_COMBINE_SCRIPT
+    CONDA_MODULE
+    CONDA_ENV
+    OUTPUT_STEM
+    SHEET_NAMES_STR
+    METADATA_SHEET_NAME
+    COMPLETE_ONLY
+    STEP1_OVERWRITE
+)
+
+for var_name in "${required_env_vars[@]}"; do
+    if [[ -z "${!var_name:-}" ]]; then
+        echo "Required environment variable is not set: ${var_name}"
+        exit 1
+    fi
+done
+
+if [[ ! -f "${TASK_FILE}" ]]; then
+    echo "TASK_FILE does not exist: ${TASK_FILE}"
+    exit 1
+fi
+
+module purge
+module load "${CONDA_MODULE}"
+conda activate "${CONDA_ENV}"
+
+IFS='|' read -r -a SHEET_NAMES <<< "${SHEET_NAMES_STR}"
+
+METADATA_COLUMNS=()
+if [[ -n "${METADATA_COLUMNS_STR:-}" ]]; then
+    IFS='|' read -r -a METADATA_COLUMNS <<< "${METADATA_COLUMNS_STR}"
+fi
+
+TASK_LINE="$(sed -n "${SLURM_ARRAY_TASK_ID}p" "${TASK_FILE}")"
+if [[ -z "${TASK_LINE}" ]]; then
+    echo "No task found for SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
+    exit 1
+fi
+
+IFS=$'\t' read -r DATA_TYPE CORPUS MODEL RAW_DIR <<< "${TASK_LINE}"
+
+MODEL_LOC="${BASE_LOC}/${DATA_TYPE}/${CORPUS}/${MODEL}"
+RAW_RESULTS_DIR="${MODEL_LOC}/raw_results"
+DATA_LOC="${MODEL_LOC}/${RAW_DIR}"
+SAVE_LOC="${RAW_RESULTS_DIR}/${RAW_DIR}_${OUTPUT_STEM}.rds"
+
+mkdir -p "${RAW_RESULTS_DIR}"
+
+if [[ ! -d "${DATA_LOC}" ]]; then
+    echo "Skipping missing directory: ${DATA_LOC}"
+    exit 0
+fi
+
+CMD=(
+    python -u "${PYTHON_COMBINE_SCRIPT}"
+    --mode combine_xlsx
+    --combine_level raw_subdir
+    --data_loc "${DATA_LOC}"
+    --save_loc "${SAVE_LOC}"
+    --sheet_names "${SHEET_NAMES[@]}"
+    --metadata_sheet_name "${METADATA_SHEET_NAME}"
+)
+
+if [[ "${#METADATA_COLUMNS[@]}" -gt 0 ]]; then
+    CMD+=(--metadata_columns "${METADATA_COLUMNS[@]}")
+fi
+
+if [[ "${STEP1_OVERWRITE}" == "true" ]]; then
+    CMD+=(--overwrite)
+fi
+
+if [[ "${COMPLETE_ONLY}" == "true" ]]; then
+    CMD+=(--complete_only)
+fi
+
+echo "Running combine step 1"
+echo "  DATA_TYPE=${DATA_TYPE}"
+echo "  CORPUS=${CORPUS}"
+echo "  MODEL=${MODEL}"
+echo "  RAW_DIR=${RAW_DIR}"
+echo "  DATA_LOC=${DATA_LOC}"
+echo "  SAVE_LOC=${SAVE_LOC}"
+echo "  SHEETS=${SHEET_NAMES_STR}"
+echo "  METADATA_SHEET_NAME=${METADATA_SHEET_NAME}"
+echo "  OUTPUT_STEM=${OUTPUT_STEM}"
+
+"${CMD[@]}"
+
+echo "Finished combine step 1 for ${DATA_TYPE} / ${CORPUS} / ${MODEL} / ${RAW_DIR}"
