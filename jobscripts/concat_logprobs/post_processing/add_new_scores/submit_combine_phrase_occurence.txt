@@ -18,6 +18,7 @@ PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
 JOBSCRIPT_DIR="${PROJECT_DIR}/jobscripts/concat_logprobs/post_processing/add_new_scores"
 
 PYTHON_COMBINE_SCRIPT="${PROJECT_DIR}/scripts/combine_files.py"
+POSTPROCESS_SCRIPT="${PROJECT_DIR}/scripts/add_additional_logprob_metrics.py"
 ARRAY_SCRIPT="${JOBSCRIPT_DIR}/combine_files_array.txt"
 
 # ============================================================
@@ -29,7 +30,11 @@ CONDA_ENV="venv"
 # ============================================================
 # What to combine
 # ============================================================
+# Step 1 + Step 2 output stem (original combined occurrence-level files)
 OUTPUT_STEM="phrase_occurrence_score_raw"
+
+# New derived/model-postprocessed output stem
+POSTPROCESS_OUTPUT_STEM="summary_by_token_num_raw"
 
 SHEET_NAMES=(
     "metadata"
@@ -38,7 +43,7 @@ SHEET_NAMES=(
 
 METADATA_SHEET_NAME="metadata"
 
-# Metadat columns to be repeated
+# Metadata columns to be repeated
 METADATA_COLUMNS=(
     "data_type"
     "corpus"
@@ -114,11 +119,14 @@ RAW_DIRS=(
 # ============================================================
 COMPLETE_ONLY="true"
 
-STEP1_OVERWRITE="true"
-STEP2_OVERWRITE="true"   # model-level combine
-STEP3_OVERWRITE="true"   # corpus-level combine
-STEP4_OVERWRITE="true"   # data_type-level combine
-STEP5_OVERWRITE="true"   # overall combine
+STEP1_OVERWRITE="true"   # raw_subdir xlsx -> raw_results/*.rds
+STEP2_OVERWRITE="true"   # model-level combine of raw_results -> combined occurrence .rds
+STEP2B_OVERWRITE="true"  # model-level postprocess occurrence .rds -> summary_by_token .rds
+STEP3_OVERWRITE="true"   # corpus-level combine of summary_by_token .rds
+STEP4_OVERWRITE="true"   # data_type-level combine of summary_by_token .rds
+STEP5_OVERWRITE="true"   # overall combine of summary_by_token .rds
+
+POSTPROCESS_INCLUDE_SUMS="true"
 
 COMBINE_ARRAY_MAX_CONCURRENT=100
 
@@ -148,10 +156,12 @@ RAW_DIRS_STR="$(join_by_pipe "${RAW_DIRS[@]}")"
 export BASE_LOC
 export PROJECT_DIR
 export PYTHON_COMBINE_SCRIPT
+export POSTPROCESS_SCRIPT
 export ARRAY_SCRIPT
 export CONDA_MODULE
 export CONDA_ENV
 export OUTPUT_STEM
+export POSTPROCESS_OUTPUT_STEM
 export SHEET_NAMES_STR
 export METADATA_SHEET_NAME
 export METADATA_COLUMNS_STR
@@ -162,9 +172,11 @@ export RAW_DIRS_STR
 export COMPLETE_ONLY
 export STEP1_OVERWRITE
 export STEP2_OVERWRITE
+export STEP2B_OVERWRITE
 export STEP3_OVERWRITE
 export STEP4_OVERWRITE
 export STEP5_OVERWRITE
+export POSTPROCESS_INCLUDE_SUMS
 export LOG_DIR
 
 # ============================================================
@@ -254,6 +266,37 @@ run_combine_rds() {
     "\${cmd[@]}"
 }
 
+run_postprocess_model_file() {
+    local data_loc="\$1"
+    local save_loc="\$2"
+    local overwrite_flag="\$3"
+
+    if [[ ! -f "\${data_loc}" ]]; then
+        echo "Skipping missing postprocess input: \${data_loc}"
+        return 0
+    fi
+
+    local cmd=(
+        python -u "\${POSTPROCESS_SCRIPT}"
+        --data_loc "\${data_loc}"
+        --save_loc "\${save_loc}"
+    )
+
+    if [[ "\${overwrite_flag}" == "true" ]]; then
+        cmd+=(--overwrite)
+    fi
+
+    if [[ "\${POSTPROCESS_INCLUDE_SUMS}" == "true" ]]; then
+        cmd+=(--include_sums)
+    fi
+
+    echo "Running model-level postprocess"
+    echo "  DATA_LOC=\${data_loc}"
+    echo "  SAVE_LOC=\${save_loc}"
+
+    "\${cmd[@]}"
+}
+
 DATA_TYPE="${data_type}"
 CORPUS="${corpus}"
 
@@ -262,7 +305,9 @@ echo "Starting pair-level combine for DATA_TYPE=\${DATA_TYPE}, CORPUS=\${CORPUS}
 for MODEL in "\${MODEL_LIST[@]}"; do
     MODEL_LOC="\${BASE_LOC}/\${DATA_TYPE}/\${CORPUS}/\${MODEL}"
     RAW_RESULTS_DIR="\${MODEL_LOC}/raw_results"
-    SAVE_LOC="\${MODEL_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+
+    MODEL_COMBINED_SAVE_LOC="\${MODEL_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+    MODEL_POSTPROCESS_SAVE_LOC="\${MODEL_LOC}/_results/combined_\${POSTPROCESS_OUTPUT_STEM}.rds"
 
     mkdir -p "\${MODEL_LOC}/_results"
 
@@ -277,17 +322,22 @@ for MODEL in "\${MODEL_LIST[@]}"; do
         [[ -f "\${FILE}" ]] && INPUT_FILES+=("\${FILE}")
     done
 
-    run_combine_rds model "\${SAVE_LOC}" "\${STEP2_OVERWRITE}" "\${INPUT_FILES[@]}"
+    # Step 2: model-level combine of original occurrence-level files
+    run_combine_rds model "\${MODEL_COMBINED_SAVE_LOC}" "\${STEP2_OVERWRITE}" "\${INPUT_FILES[@]}"
+
+    # Step 2b: derive the summary-by-token file at model level
+    run_postprocess_model_file "\${MODEL_COMBINED_SAVE_LOC}" "\${MODEL_POSTPROCESS_SAVE_LOC}" "\${STEP2B_OVERWRITE}"
 done
 
+# Step 3: corpus-level combine now uses the NEW derived model files
 CORPUS_LOC="\${BASE_LOC}/\${DATA_TYPE}/\${CORPUS}"
-SAVE_LOC="\${CORPUS_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+SAVE_LOC="\${CORPUS_LOC}/_results/combined_\${POSTPROCESS_OUTPUT_STEM}.rds"
 
 mkdir -p "\${CORPUS_LOC}/_results"
 
 INPUT_FILES=()
 for MODEL in "\${MODEL_LIST[@]}"; do
-    FILE="\${CORPUS_LOC}/\${MODEL}/_results/combined_\${OUTPUT_STEM}.rds"
+    FILE="\${CORPUS_LOC}/\${MODEL}/_results/combined_\${POSTPROCESS_OUTPUT_STEM}.rds"
     [[ -f "\${FILE}" ]] && INPUT_FILES+=("\${FILE}")
 done
 
@@ -347,13 +397,13 @@ run_combine_rds() {
 
 DATA_TYPE="${data_type}"
 DATA_TYPE_LOC="\${BASE_LOC}/\${DATA_TYPE}"
-SAVE_LOC="\${DATA_TYPE_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+SAVE_LOC="\${DATA_TYPE_LOC}/_results/combined_\${POSTPROCESS_OUTPUT_STEM}.rds"
 
 mkdir -p "\${DATA_TYPE_LOC}/_results"
 
 INPUT_FILES=()
 for CORPUS in "\${CORPORA[@]}"; do
-    FILE="\${DATA_TYPE_LOC}/\${CORPUS}/_results/combined_\${OUTPUT_STEM}.rds"
+    FILE="\${DATA_TYPE_LOC}/\${CORPUS}/_results/combined_\${POSTPROCESS_OUTPUT_STEM}.rds"
     [[ -f "\${FILE}" ]] && INPUT_FILES+=("\${FILE}")
 done
 
@@ -409,11 +459,11 @@ run_combine_rds() {
     "\${cmd[@]}"
 }
 
-SAVE_LOC="\${BASE_LOC}/_results/combined_\${OUTPUT_STEM}.rds"
+SAVE_LOC="\${BASE_LOC}/_results/combined_\${POSTPROCESS_OUTPUT_STEM}.rds"
 
 INPUT_FILES=()
 for DATA_TYPE in "\${DATA_TYPES[@]}"; do
-    FILE="\${BASE_LOC}/\${DATA_TYPE}/_results/combined_\${OUTPUT_STEM}.rds"
+    FILE="\${BASE_LOC}/\${DATA_TYPE}/_results/combined_\${POSTPROCESS_OUTPUT_STEM}.rds"
     [[ -f "\${FILE}" ]] && INPUT_FILES+=("\${FILE}")
 done
 
@@ -426,8 +476,9 @@ EOF
 # ============================================================
 # Submit pipeline
 # ============================================================
-echo "Submitting phrase occurence score combine pipeline"
-echo "OUTPUT_STEM=${OUTPUT_STEM}"
+echo "Submitting phrase occurrence score combine pipeline"
+echo "STEP1/STEP2 OUTPUT_STEM=${OUTPUT_STEM}"
+echo "DOWNSTREAM POSTPROCESS_OUTPUT_STEM=${POSTPROCESS_OUTPUT_STEM}"
 echo "SHEETS=${SHEET_NAMES_STR}"
 
 declare -A CORPUS_JOB_IDS_BY_DATATYPE
