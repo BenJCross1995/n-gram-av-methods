@@ -18,7 +18,7 @@ PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
 JOBSCRIPT_DIR="${PROJECT_DIR}/jobscripts/concat_logprobs/post_processing/add_new_scores"
 
 PYTHON_COMBINE_SCRIPT="${PROJECT_DIR}/scripts/combine_files.py"
-POSTPROCESS_SCRIPT="${PROJECT_DIR}/scripts/add_additional_logprob_metrics.py"
+POSTPROCESS_SCRIPT="${PROJECT_DIR}/scripts/add_additional_logprobs_metrics.py"
 ARRAY_SCRIPT="${JOBSCRIPT_DIR}/combine_files_array.txt"
 
 # ============================================================
