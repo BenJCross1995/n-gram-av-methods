@@ -80,10 +80,6 @@ CORPORA=(
     "Yelp"
 )
 
-CORPORA=(
-    "ACL"
-)
-
 DATA_TYPES=(
     "test"
     "training"
