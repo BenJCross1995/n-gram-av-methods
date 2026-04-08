@@ -1,0 +1,90 @@
+#!/bin/bash --login
+
+#SBATCH -J perf_score_v2
+#SBATCH -t 4-0
+#SBATCH -p gpuL
+#SBATCH -G 1
+
+set -euo pipefail
+
+# --------------------------------------------------
+# Clean out any Conda contamination
+# --------------------------------------------------
+conda deactivate 2>/dev/null || true
+
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_SHLVL
+unset XML2_CONFIG
+unset PKG_CONFIG_LIBDIR
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH
+
+PATH="$(echo "$PATH" | tr ':' '\n' | grep -v 'anaconda3' | paste -sd ':' -)"
+export PATH
+hash -r
+
+# --------------------------------------------------
+# Load R
+# --------------------------------------------------
+module purge
+module load apps/gcc/R/4.5.0
+
+# --------------------------------------------------
+# Paths
+# --------------------------------------------------
+PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+BASE_DIR="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs/_results_v2"
+SCRIPT_LOC="${PROJECT_DIR}/scripts/calculate_performance.R"
+
+INPUT_FILE="combined_summary_by_token_num_raw.rds"
+INPUT_LOC="${BASE_DIR}/${INPUT_FILE}"
+
+GROUPING_COLS="data_type,corpus,scoring_model,max_context_tokens,min_token_size"
+SCORING_COLS="unknown_sum_log_probs,llr_unknown_vs_nocontext,unknown_sum_log_probs_sum,llr_unknown_vs_nocontext_sum"
+
+BY="case"
+PROGRESS="FALSE"
+SAVE_RDS="TRUE"
+CALCULATE_UNCALIBRATED="TRUE"
+
+SAVE_LOC_UNCALIBRATED="${BASE_DIR}/performance_summary_by_token_uncalibrated_raw.xlsx"
+SAVE_LOC_CALIBRATED="${BASE_DIR}/performance_summary_by_token_calibrated_raw.xlsx"
+
+# --------------------------------------------------
+# Run from project root so renv/activate.R is found
+# --------------------------------------------------
+cd "${PROJECT_DIR}"
+
+echo "----------------------------------------"
+echo "R: $(which R)"
+echo "Rscript: $(which Rscript)"
+echo "Working directory: $(pwd)"
+echo "----------------------------------------"
+
+Rscript -e 'if (file.exists("renv/activate.R")) source("renv/activate.R"); library(dplyr); library(purrr); library(tibble); library(writexl); library(idiolect); cat("Package load test passed\n")'
+
+if [[ ! -f "${INPUT_LOC}" ]]; then
+    echo "Input file does not exist: ${INPUT_LOC}"
+    exit 1
+fi
+
+echo "--------------------------------------------------"
+echo "Running performance scoring for:"
+echo "INPUT_LOC=${INPUT_LOC}"
+echo "SAVE_LOC_UNCALIBRATED=${SAVE_LOC_UNCALIBRATED}"
+echo "SAVE_LOC_CALIBRATED=${SAVE_LOC_CALIBRATED}"
+echo "GROUPING_COLS=${GROUPING_COLS}"
+echo "SCORING_COLS=${SCORING_COLS}"
+echo "CALCULATE_UNCALIBRATED=${CALCULATE_UNCALIBRATED}"
+echo "--------------------------------------------------"
+
+Rscript "${SCRIPT_LOC}" \
+  --input_loc "${INPUT_LOC}" \
+  --save_loc_uncalibrated "${SAVE_LOC_UNCALIBRATED}" \
+  --save_loc_calibrated "${SAVE_LOC_CALIBRATED}" \
+  --grouping_cols "${GROUPING_COLS}" \
+  --scoring_cols "${SCORING_COLS}" \
+  --by "${BY}" \
+  --progress "${PROGRESS}" \
+  --save_rds "${SAVE_RDS}" \
+  --calculate_uncalibrated "${CALCULATE_UNCALIBRATED}"
+
+echo "Finished successfully."
