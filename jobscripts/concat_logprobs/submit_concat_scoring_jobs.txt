@@ -43,7 +43,9 @@ SCORE_SCRIPT_NAME="score_ngrams_concat"
 
 # Which scripts to run
 RUN_MULTI=true
-RUN_CONCAT=false
+
+# Run for raw on its own
+RUN_CONCAT=true
 
 # Logs
 LOG_DIR="${PROJECT_ROOT}/slurm_logs"
