@@ -24,8 +24,10 @@ MODEL_LIST=(
 # List of corpora - we will loop across all (skipping if data does not exist)
 CORPORA=(
     "ACL"
+    "All-the-news"
     "Amazon"
     "Enron Cleaned"
+    "IMDB"
     "Koppel's Blogs"
     "Perverted Justice"
     "Reddit"
@@ -45,6 +47,7 @@ DATA_TYPES=(
 # raw/raw_10/raw_20/etc folders inside each model directory
 RAW_DIRS=(
     "raw"
+    "raw_0"
     "raw_5"
     "raw_10"
     "raw_20"
