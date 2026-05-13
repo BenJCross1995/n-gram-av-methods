@@ -73,7 +73,6 @@ MODEL_LIST=(
 )
 
 MODEL_LIST=(
-    "Qwen3.5-0.8B-Base"
     "Qwen3-0.6B-Base"
 )
 
@@ -92,10 +91,6 @@ CORPORA=(
     "TripAdvisor"
     "Wiki"
     "Yelp"
-)
-
-CORPORA=(
-    "Enron Cleaned"
 )
 
 DATA_TYPES=(
