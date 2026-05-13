@@ -66,6 +66,15 @@ CHILD_MEM="64G"
 
 MODEL_LIST=(
     "gpt2"
+    "Qwen3.5-2B-Base"
+    "Qwen3.5-0.8B-Base"
+    "Qwen3-1.7B-Base"
+    "Qwen3-0.6B-Base"
+)
+
+MODEL_LIST=(
+    "Qwen3.5-0.8B-Base"
+    "Qwen3-0.6B-Base"
 )
 
 CORPORA=(
@@ -93,6 +102,10 @@ DATA_TYPES=(
 FIXED_NUM_TOKENS=(
     0 10 20 30 40 50 60 70 80 90 100
     200 300 400 500 600 700 800 900 1000
+)
+
+FIXED_NUM_TOKENS=(
+    0 10 100
 )
 
 # ============================================================
