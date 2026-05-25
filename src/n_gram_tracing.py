@@ -341,7 +341,44 @@ def filter_ngrams_with_outside_occurrences(
         for row in stats.values()
         if row["keep"]
     ]
-    
+
+def filter_ngrams_with_outside_occurrences_in_both_texts(
+    ngrams,
+    known_text,
+    unknown_text,
+    tokenizer=None,
+    *,
+    lowercase=True,
+):
+    """
+    Keep n-grams only if they have at least one occurrence outside longer
+    candidate n-grams in BOTH the known text and the unknown text.
+    """
+    known_stats = ngram_occurrence_stats(
+        ngrams=ngrams,
+        text=known_text,
+        tokenizer=tokenizer,
+        lowercase=lowercase,
+    )
+
+    unknown_stats = ngram_occurrence_stats(
+        ngrams=ngrams,
+        text=unknown_text,
+        tokenizer=tokenizer,
+        lowercase=lowercase,
+    )
+
+    kept = []
+
+    for g in dict.fromkeys(tuple(x) for x in ngrams):
+        known_keep = known_stats.get(g, {}).get("keep", False)
+        unknown_keep = unknown_stats.get(g, {}).get("keep", False)
+
+        if known_keep and unknown_keep:
+            kept.append(list(g))
+
+    return kept
+
 # -------------------------------------------------------------------
 # TOKEN-BASED MATCHING
 # -------------------------------------------------------------------

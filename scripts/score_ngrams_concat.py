@@ -15,7 +15,7 @@ from utils import apply_temp_doc_id, build_metadata_df
 from n_gram_tracing import (
     common_ngrams,
     filter_len_common_ngrams,
-    filter_ngrams_with_outside_occurrences,
+    filter_ngrams_with_outside_occurrences_in_both_texts
 )
 from n_gram_scoring import score_ngrams_to_df
 from excel_functions import create_excel_template
@@ -47,10 +47,10 @@ def parse_args():
         action="store_true",
         help=(
             "Use greatest-common/subgram-aware behaviour. This first collects "
-            "common n-grams with include_subgrams=True, then removes n-grams "
-            "that only occur inside longer n-grams in the unknown text. During "
-            "unknown scoring, occurrences nested inside longer retained n-grams "
-            "are also excluded."
+            "common n-grams with include_subgrams=True, then keeps a subgram only "
+            "if it has an independent occurrence outside longer n-grams in both "
+            "the current known document and the unknown document. During unknown "
+            "scoring, occurrences nested inside longer retained n-grams are also excluded."
         ),
     )
     
@@ -122,6 +122,21 @@ def main():
     num_known_problems = len(selected_known)
     print(f"There are {num_known_problems} known texts in the problem")
     
+    # Create the document dataframe
+    docs_df = pd.concat(
+        [
+            pd.DataFrame({
+                "type": ["unknown"],
+                "doc_id": [unknown_doc],
+                "text": [unknown_text],
+            }),
+            selected_known[["doc_id", "text"]]
+                .copy()
+                .assign(type="known")[["type", "doc_id", "text"]],
+        ],
+        ignore_index=True,
+    )
+    
     # -----
     # Get the common n-grams between the unknown and known texts
     # -----
@@ -137,8 +152,9 @@ def main():
         
         # Perform a try/except to try to find common n-grams
         # Leave a flag if unable to find them
-        # If greatest_common=True, collect subgrams at this stage so the later
-        # unknown-text filter can decide which subgrams have independent uses.
+        # If greatest_common=True, collect subgrams at this stage so the
+        # pair-local known/unknown filter can decide which subgrams have
+        # independent uses in both texts.
         try:
             common = common_ngrams(
                 text1=known_text,
@@ -147,6 +163,17 @@ def main():
                 include_subgrams=args.greatest_common,
                 lowercase=args.lowercase
             )
+            
+            # If we use greatest_common we find the subgrams which may be in each
+            if args.greatest_common:
+                common = filter_ngrams_with_outside_occurrences_in_both_texts(
+                    ngrams=common,
+                    known_text=known_text,
+                    unknown_text=unknown_text,
+                    tokenizer=tokenizer,
+                    lowercase=args.lowercase
+                )
+            
             ngrams_found = True
         except:
             common = []
@@ -181,25 +208,6 @@ def main():
     )
 
     print(f"There are {len(distinct_ngram_list)} distinct n-grams before optional filters")
-
-    # Greatest-common filtering is applied before min/max length filtering.
-    # This matters because a short subgram may only be valid if it has an
-    # independent occurrence outside a longer n-gram in the unknown text.
-    if args.greatest_common:
-        print("Applying greatest-common outside-occurrence filter using unknown text")
-        distinct_ngram_list = filter_ngrams_with_outside_occurrences(
-            ngrams=distinct_ngram_list,
-            text=unknown_text,
-            tokenizer=tokenizer,
-            lowercase=args.lowercase,
-        )
-
-        distinct_ngram_list = sorted(
-            distinct_ngram_list,
-            key=lambda x: (len(x), sum(len(str(token)) for token in x)),
-        )
-
-        print(f"There are {len(distinct_ngram_list)} n-grams after greatest-common filtering")
 
     # Filter by token length if desired.
     filtered_ngrams = filter_len_common_ngrams(
@@ -251,6 +259,7 @@ def main():
     )
     
     create_excel_template(
+        docs = docs_df,
         unknown = unknown_scored_df,
         no_context = no_context_df,
         metadata = overall_problem_metadata,
