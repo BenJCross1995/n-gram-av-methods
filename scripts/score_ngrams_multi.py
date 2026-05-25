@@ -52,6 +52,11 @@ def parse_args():
     # Script Choice
     ap.add_argument("--score_script", type=str, default="score_ngrams")
 
+    ap.add_argument(
+        "--greatest_common",
+        action="store_true",
+        help="Use greatest-common n-gram filtering/independent occurrence scoring where supported."
+    )
     return ap.parse_args()
 
 def with_suffix_dir(base_dir: str, num_tokens: int | None) -> str:
@@ -94,6 +99,10 @@ def main():
     if args.score_script == "score_ngrams_concat":
         base_cmd += ["--problem", str(args.problem)]
         
+        #  For the time being only using greatest_common on concat
+        if args.greatest_common:
+            base_cmd.append("--greatest_common")
+            
     if args.min_len is not None:
         base_cmd += ["--min_len", str(args.min_len)]
 

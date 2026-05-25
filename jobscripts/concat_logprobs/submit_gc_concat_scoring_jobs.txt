@@ -1,6 +1,6 @@
 #!/bin/bash --login
 
-#SBATCH -J submit_concat_scores
+#SBATCH -J submit_gc_concat_scores
 #SBATCH -p himem
 #SBATCH -t 7-0
 #SBATCH -n 1
@@ -26,10 +26,10 @@ MODEL_ROOT="/mnt/hum01-home01/d34195bc/models"
 EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
 
 # Generic array jobscript that actually does the work
-JOB_SCRIPT="${PROJECT_ROOT}/jobscripts/concat_logprobs/run_concat_scoring.txt"
+JOB_SCRIPT="${PROJECT_ROOT}/jobscripts/concat_logprobs/run_gc_concat_scoring.txt"
 
 # Experiment naming
-EXPERIMENT_NAME="concat_ngram_masking_logprobs"
+EXPERIMENT_NAME="concat_ngram_masking_logprobs_gc"
 SAVE_SUBDIR="raw"
 COMPLETED_SUBDIR="raw"
 
@@ -45,7 +45,7 @@ SCORE_SCRIPT_NAME="score_ngrams_concat"
 RUN_MULTI=true
 
 # Run for raw on its own
-RUN_CONCAT=true
+RUN_CONCAT=false
 
 # Logs
 LOG_DIR="${PROJECT_ROOT}/slurm_logs"
@@ -93,6 +93,10 @@ DATA_TYPES=(
 FIXED_NUM_TOKENS=(
     0 10 20 30 40 50 60 70 80 90 100
     200 300 400 500 600 700 800 900 1000
+)
+
+FIXED_NUM_TOKENS=(
+    0 10 100
 )
 
 # ============================================================

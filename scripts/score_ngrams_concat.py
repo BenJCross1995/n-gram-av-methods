@@ -12,7 +12,11 @@ sys.path.insert(0, str(from_root("src")))
 from read_and_write_docs import read_jsonl, read_rds
 from model_loading import load_model
 from utils import apply_temp_doc_id, build_metadata_df
-from n_gram_tracing import common_ngrams, filter_len_common_ngrams
+from n_gram_tracing import (
+    common_ngrams,
+    filter_len_common_ngrams,
+    filter_ngrams_with_outside_occurrences,
+)
 from n_gram_scoring import score_ngrams_to_df
 from excel_functions import create_excel_template
 
@@ -36,7 +40,20 @@ def parse_args():
     ap.add_argument("--no-lowercase", dest="lowercase", action="store_false")
     ap.set_defaults(lowercase=True)
     ap.add_argument("--num_tokens", type=int, default=None)
-        
+
+    # Greatest-common occurrence handling
+    ap.add_argument(
+        "--greatest_common",
+        action="store_true",
+        help=(
+            "Use greatest-common/subgram-aware behaviour. This first collects "
+            "common n-grams with include_subgrams=True, then removes n-grams "
+            "that only occur inside longer n-grams in the unknown text. During "
+            "unknown scoring, occurrences nested inside longer retained n-grams "
+            "are also excluded."
+        ),
+    )
+    
     return ap.parse_args()
 
 def main():
@@ -79,7 +96,6 @@ def main():
     unknown = read_jsonl(args.unknown_loc)
     unknown = apply_temp_doc_id(unknown)
     
-    
     print("Data loaded")
     
     # NOTE - Is this used?
@@ -121,12 +137,14 @@ def main():
         
         # Perform a try/except to try to find common n-grams
         # Leave a flag if unable to find them
+        # If greatest_common=True, collect subgrams at this stage so the later
+        # unknown-text filter can decide which subgrams have independent uses.
         try:
             common = common_ngrams(
                 text1=known_text,
                 text2=unknown_text,
                 tokenizer=tokenizer,
-                include_subgrams=False,
+                include_subgrams=args.greatest_common,
                 lowercase=args.lowercase
             )
             ngrams_found = True
@@ -162,30 +180,75 @@ def main():
         key=lambda x: (len(x), sum(len(str(token)) for token in x))
     )
 
-    # Filter by token length if desired
+    print(f"There are {len(distinct_ngram_list)} distinct n-grams before optional filters")
+
+    # Greatest-common filtering is applied before min/max length filtering.
+    # This matters because a short subgram may only be valid if it has an
+    # independent occurrence outside a longer n-gram in the unknown text.
+    if args.greatest_common:
+        print("Applying greatest-common outside-occurrence filter using unknown text")
+        distinct_ngram_list = filter_ngrams_with_outside_occurrences(
+            ngrams=distinct_ngram_list,
+            text=unknown_text,
+            tokenizer=tokenizer,
+            lowercase=args.lowercase,
+        )
+
+        distinct_ngram_list = sorted(
+            distinct_ngram_list,
+            key=lambda x: (len(x), sum(len(str(token)) for token in x)),
+        )
+
+        print(f"There are {len(distinct_ngram_list)} n-grams after greatest-common filtering")
+
+    # Filter by token length if desired.
     filtered_ngrams = filter_len_common_ngrams(
         distinct_ngram_list,
         min_len=args.min_len,
-        max_len=args.max_len
+        max_len=args.max_len,
     )
-    print(f"There are {len(filtered_ngrams)} n-grams in common!")
+    print(f"There are {len(filtered_ngrams)} n-grams in common after length filtering!")
     
     overall_problem_metadata = (
-        problem_metadata[['data_type', 'corpus', 'scoring_model', 'max_context_tokens',
-                          'problem', 'known_author', 'unknown_author', 'target']]
+        problem_metadata[[
+            'data_type',
+            'corpus',
+            'scoring_model',
+            'max_context_tokens',
+            'problem',
+            'known_author',
+            'unknown_author',
+            'target'
+        ]]
         .drop_duplicates()
     )
     overall_problem_metadata['num_problems'] = len(problem_metadata)
     overall_problem_metadata['ngrams_found'] = sum(problem_metadata['ngrams_found'])
-    overall_problem_metadata['completed'] = overall_problem_metadata['num_problems'] == overall_problem_metadata['ngrams_found']
+    overall_problem_metadata['completed'] = (
+        overall_problem_metadata['num_problems'] == overall_problem_metadata['ngrams_found']
+    )
     
     # Get the no context scores
     print("Scoring the No Context n-grams")
-    no_context_df = score_ngrams_to_df(filtered_ngrams, model, tokenizer, full_text=None, use_bos=True)
+    no_context_df = score_ngrams_to_df(
+        filtered_ngrams,
+        model,
+        tokenizer,
+        full_text=None,
+        use_bos=True
+    )
     
     # Score the unknown phrases
     print("Scoring the Unknown n-grams")
-    unknown_scored_df = score_ngrams_to_df(filtered_ngrams, model, tokenizer, full_text=unknown_text, use_bos=True, num_tokens=args.num_tokens)
+    unknown_scored_df = score_ngrams_to_df(
+        filtered_ngrams,
+        model,
+        tokenizer,
+        full_text=unknown_text,
+        use_bos=True,
+        num_tokens=args.num_tokens,
+        greatest_common=args.greatest_common,
+    )
     
     create_excel_template(
         unknown = unknown_scored_df,

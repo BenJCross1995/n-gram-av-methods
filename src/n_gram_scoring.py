@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+import time
 import torch
 import pandas as pd
 import torch.nn.functional as F
@@ -10,6 +11,7 @@ from n_gram_tracing import (
     tokens_to_text,
     texts_around_each_token_ngram,
     get_trimmed_context_before_span,
+    texts_around_each_independent_token_ngram,
 )
 
 
@@ -122,7 +124,6 @@ def score_ngrams(
         # "text_log_probs": log_probs,
     }
 
-
 def score_ngrams_to_df(
     ngrams,
     model,
@@ -132,6 +133,7 @@ def score_ngrams_to_df(
     lowercase: bool = True,
     use_bos: bool = False,
     num_tokens: Optional[int] = None,
+    greatest_common: bool = False,
 ) -> pd.DataFrame:
     """
     Build a DataFrame with:
@@ -161,6 +163,9 @@ def score_ngrams_to_df(
             continue
 
         if full_text is None:
+            
+            score_start = time.perf_counter()
+            
             res = score_ngrams(
                 ngram=phrase_tokens,
                 model=model,
@@ -169,23 +174,43 @@ def score_ngrams_to_df(
                 lowercase=lowercase,
                 use_bos=use_bos,
             )
+            
+            score_time_seconds = time.perf_counter() - score_start
+            
             rows.append({
                 "phrase_num": phrase_num,
                 "phrase_occurrence": 1,
+                "score_time_seconds": score_time_seconds,
                 **res,
             })
             continue
 
-        prefixes, token_spans, tokenized_text = texts_around_each_token_ngram(
-            full_text,
-            phrase_tokens,
-            tokenizer=tokenizer,
-            start=0,
-            lowercase=lowercase,
-            allow_overlaps=False,
-            return_spans=True,
-            return_tokenized_text=True,
-        )
+        # greatest_common means that we use the greatest common n-grams method (new)
+        # We include subgrams of a larger n-gram if they're found elsewhere 
+        if greatest_common:
+            prefixes, token_spans, tokenized_text = texts_around_each_independent_token_ngram(
+                full_text,
+                phrase_tokens,
+                all_ngrams=ngrams,
+                tokenizer=tokenizer,
+                start=0,
+                lowercase=lowercase,
+                allow_overlaps=False,
+                return_spans=True,
+                return_tokenized_text=True,
+            )
+            
+        else:
+            prefixes, token_spans, tokenized_text = texts_around_each_token_ngram(
+                full_text,
+                phrase_tokens,
+                tokenizer=tokenizer,
+                start=0,
+                lowercase=lowercase,
+                allow_overlaps=False,
+                return_spans=True,
+                return_tokenized_text=True,
+            )
 
         for i, (prefix, tok_span) in enumerate(zip(prefixes, token_spans), start=1):
             if num_tokens == 0:
@@ -204,6 +229,8 @@ def score_ngrams_to_df(
                 occ_text = prefix
                 effective_use_bos = use_bos
 
+            score_start = time.perf_counter()
+            
             res = score_ngrams(
                 ngram=phrase_tokens,
                 model=model,
@@ -213,9 +240,12 @@ def score_ngrams_to_df(
                 use_bos=effective_use_bos,
             )
 
+            score_time_seconds = time.perf_counter() - score_start
+            
             rows.append({
                 "phrase_num": phrase_num,
-                "phrase_occurrence": i,
+                "phrase_occurrence": 1,
+                "score_time_seconds": score_time_seconds,
                 **res,
             })
 
