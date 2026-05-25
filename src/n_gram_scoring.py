@@ -244,7 +244,7 @@ def score_ngrams_to_df(
             
             rows.append({
                 "phrase_num": phrase_num,
-                "phrase_occurrence": 1,
+                "phrase_occurrence": i,
                 "score_time_seconds": score_time_seconds,
                 **res,
             })
