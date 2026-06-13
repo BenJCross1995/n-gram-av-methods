@@ -400,7 +400,7 @@ def print_gst_tiles(result: dict[str, Any]) -> None:
         print(f"Text:         {tile['tile_text']}")
         print()
 
-def gst_many_knowns_vs_unknown_tiles(
+def gst_many_knowns_vs_unknown_tiles_v2(
     known_texts: list[str],
     unknown_text: str,
     tokenizer=None,

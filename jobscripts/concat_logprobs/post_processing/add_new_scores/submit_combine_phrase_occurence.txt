@@ -13,7 +13,7 @@ set -euo pipefail
 # ============================================================
 # Core paths
 # ============================================================
-BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs"
+BASE_LOC="/mnt/hum01-home01/d34195bc/av_datasets_experiments/concat_ngram_masking_logprobs_gc"
 PROJECT_DIR="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
 JOBSCRIPT_DIR="${PROJECT_DIR}/jobscripts/concat_logprobs/post_processing/add_new_scores"
 
