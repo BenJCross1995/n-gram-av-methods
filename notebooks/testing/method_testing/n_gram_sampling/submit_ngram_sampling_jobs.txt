@@ -1,0 +1,248 @@
+#!/bin/bash --login
+
+#SBATCH -J submit_ngram_sampling
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -euo pipefail
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# ============================================================
+# Central shared settings
+# ============================================================
+
+PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+
+DATA_ROOT="/mnt/hum01-home01/d34195bc/av_datasets"
+MODEL_ROOT="/mnt/hum01-home01/d34195bc/models"
+EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
+
+EXPERIMENT_NAME="ngram_sampling"
+
+# The corpus-level Python script is in notebooks rather than scripts.
+PYTHON_SCRIPT="${PROJECT_ROOT}/notebooks/testing/method_testing/n_gram_sampling/score_ngram_sampling_corpus.py"
+
+# Child jobscript that runs one complete corpus.
+JOB_SCRIPT="${PROJECT_ROOT}/notebooks/testing/method_testing/n_gram_sampling/run_ngram_sampling.txt"
+
+# Logs
+LOG_DIR="${PROJECT_ROOT}/slurm_logs/${EXPERIMENT_NAME}"
+mkdir -p "${LOG_DIR}"
+
+# Whether to chain each submitted child job after the previous one.
+CHAIN_JOBS=false
+
+# Shared SLURM settings for child jobs.
+CHILD_PARTITION="himem"
+CHILD_TIME="7-0"
+CHILD_NTASKS="1"
+CHILD_MEM="64G"
+
+# ============================================================
+# Experiment settings
+# ============================================================
+
+N_SAMPLES=10
+MAX_ATTEMPTS=1000
+SEED=42
+SCORE_COL="sum_log_probs"
+
+# Leave blank to avoid filtering the collected n-grams before scoring.
+MIN_LEN=""
+MAX_LEN=""
+
+LOWERCASE=true
+GREATEST_COMMON=true
+USE_BOS=true
+USE_MIN_TOKEN_SIZE=true
+
+# Existing result files are skipped unless this is true.
+OVERWRITE=false
+
+# ============================================================
+# Lists to edit
+# ============================================================
+
+MODEL_LIST=(
+    "gpt2"
+)
+
+CORPORA=(
+    "ACL"
+    "All-the-news"
+    "Amazon"
+    "Enron Cleaned"
+    "IMDB"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "Reddit"
+    "StackExchange"
+    "The Apricity"
+    "The Telegraph"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+DATA_TYPES=(
+    "test"
+    "training"
+)
+
+# ============================================================
+# Helpers
+# ============================================================
+
+slugify() {
+    local x="$1"
+    x="${x,,}"        # lowercase
+    x="${x// /_}"     # spaces -> underscores
+    x="${x//\'/}"     # remove apostrophes
+    x="${x//,/}"      # remove commas
+    x="${x//\//_}"    # slashes -> underscores
+    x="${x//(/}"      # remove (
+    x="${x//)/}"      # remove )
+    printf '%s\n' "$x"
+}
+
+# ============================================================
+# Validate shared files before submitting anything
+# ============================================================
+
+if [[ ! -f "${PYTHON_SCRIPT}" ]]; then
+    echo "ERROR: Python script does not exist:"
+    echo "  ${PYTHON_SCRIPT}"
+    exit 1
+fi
+
+if [[ ! -f "${JOB_SCRIPT}" ]]; then
+    echo "ERROR: Child jobscript does not exist:"
+    echo "  ${JOB_SCRIPT}"
+    exit 1
+fi
+
+# ============================================================
+# Submit one job per model, data type, and corpus
+# ============================================================
+
+PREV_JOB_ID=""
+SUBMITTED_COUNT=0
+SKIPPED_COUNT=0
+
+for MODEL in "${MODEL_LIST[@]}"; do
+    MODEL_LOC="${MODEL_ROOT}/${MODEL}"
+
+    if [[ ! -e "${MODEL_LOC}" ]]; then
+        echo "Skipping missing model:"
+        echo "  ${MODEL_LOC}"
+        echo
+        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+        continue
+    fi
+
+    for DATA_TYPE in "${DATA_TYPES[@]}"; do
+        METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
+
+        if [[ ! -f "${METADATA_LOC}" ]]; then
+            echo "Skipping missing metadata:"
+            echo "  ${METADATA_LOC}"
+            echo
+            SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+            continue
+        fi
+
+        for CORPUS in "${CORPORA[@]}"; do
+            KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
+            UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+
+            if [[ ! -f "${KNOWN_LOC}" ]]; then
+                echo "Skipping missing known data:"
+                echo "  ${KNOWN_LOC}"
+                echo
+                SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+                continue
+            fi
+
+            if [[ ! -f "${UNKNOWN_LOC}" ]]; then
+                echo "Skipping missing unknown data:"
+                echo "  ${UNKNOWN_LOC}"
+                echo
+                SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+                continue
+            fi
+
+            JOB_NAME="ngram_sampling_$(slugify "${CORPUS}")_$(slugify "${DATA_TYPE}")_$(slugify "${MODEL}")"
+
+            echo "------------------------------------------------------------"
+            echo "Submitting:"
+            echo "  EXPERIMENT         = ${EXPERIMENT_NAME}"
+            echo "  DATA_TYPE          = ${DATA_TYPE}"
+            echo "  CORPUS             = ${CORPUS}"
+            echo "  MODEL              = ${MODEL}"
+            echo "  JOB_NAME           = ${JOB_NAME}"
+            echo "  N_SAMPLES          = ${N_SAMPLES}"
+            echo "  MAX_ATTEMPTS       = ${MAX_ATTEMPTS}"
+            echo "  SEED               = ${SEED}"
+            echo "  USE_MIN_TOKEN_SIZE = ${USE_MIN_TOKEN_SIZE}"
+
+            SBATCH_ARGS=(
+                --parsable
+                --job-name "${JOB_NAME}"
+                -p "${CHILD_PARTITION}"
+                -t "${CHILD_TIME}"
+                -n "${CHILD_NTASKS}"
+                --mem "${CHILD_MEM}"
+                -o "${LOG_DIR}/%x_%j.out"
+                -e "${LOG_DIR}/%x_%j.err"
+            )
+
+            if [[ "${CHAIN_JOBS}" == "true" && -n "${PREV_JOB_ID}" ]]; then
+                SBATCH_ARGS+=(--dependency="afterok:${PREV_JOB_ID}")
+                echo "  DEPENDS ON         = ${PREV_JOB_ID}"
+            fi
+
+            JOB_ID="$(
+                CORPUS="${CORPUS}" \
+                DATA_TYPE="${DATA_TYPE}" \
+                MODEL="${MODEL}" \
+                DATA_ROOT="${DATA_ROOT}" \
+                MODEL_ROOT="${MODEL_ROOT}" \
+                EXPERIMENT_ROOT="${EXPERIMENT_ROOT}" \
+                EXPERIMENT_NAME="${EXPERIMENT_NAME}" \
+                PYTHON_SCRIPT="${PYTHON_SCRIPT}" \
+                N_SAMPLES="${N_SAMPLES}" \
+                MAX_ATTEMPTS="${MAX_ATTEMPTS}" \
+                SEED="${SEED}" \
+                SCORE_COL="${SCORE_COL}" \
+                MIN_LEN="${MIN_LEN}" \
+                MAX_LEN="${MAX_LEN}" \
+                LOWERCASE="${LOWERCASE}" \
+                GREATEST_COMMON="${GREATEST_COMMON}" \
+                USE_BOS="${USE_BOS}" \
+                USE_MIN_TOKEN_SIZE="${USE_MIN_TOKEN_SIZE}" \
+                OVERWRITE="${OVERWRITE}" \
+                sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
+            )"
+
+            echo "  SUBMITTED ID       = ${JOB_ID}"
+            echo
+
+            SUBMITTED_COUNT=$((SUBMITTED_COUNT + 1))
+
+            if [[ "${CHAIN_JOBS}" == "true" ]]; then
+                PREV_JOB_ID="${JOB_ID}"
+            fi
+        done
+    done
+done
+
+echo "All submissions complete."
+echo "Submitted jobs: ${SUBMITTED_COUNT}"
+echo "Skipped combinations: ${SKIPPED_COUNT}"
