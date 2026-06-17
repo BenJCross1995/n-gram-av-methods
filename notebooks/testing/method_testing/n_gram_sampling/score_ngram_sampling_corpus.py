@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Run sampled token n-gram tracing for every problem in one corpus."""
+# REFACTORED: one --problem per invocation; writes completed/<problem>.rds or errors/<problem>.rds.
+"""Run sampled token n-gram tracing for one author-verification problem."""
 
 import argparse
 import os
@@ -48,8 +49,8 @@ ERROR_COLUMNS = [
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description=(
-            "Run sampled token n-gram tracing for every problem in a corpus, "
-            "then save one corpus-level RDS result table and one RDS error table."
+            "Run sampled token n-gram tracing for one problem and save either "
+            "a completed RDS result or a one-row RDS error record."
         )
     )
 
@@ -61,23 +62,18 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument(
         "--save_loc",
         required=True,
-        help=(
-            "Output .rds file or output directory. If a directory is supplied, "
-            "a corpus-level filename is generated automatically."
-        ),
+        help="Directory for successfully completed problem-level RDS files.",
     )
     ap.add_argument(
         "--error_save_loc",
-        default=None,
-        help=(
-            "Error .rds file or output directory. If omitted, an error filename "
-            "is derived from save_loc."
-        ),
+        required=True,
+        help="Directory for problem-level RDS error records.",
     )
 
-    # Dataset metadata
-    ap.add_argument("--corpus", default="Wiki")
-    ap.add_argument("--data_type", default="training")
+    # Dataset/problem metadata
+    ap.add_argument("--corpus", required=True)
+    ap.add_argument("--data_type", required=True)
+    ap.add_argument("--problem", required=True)
 
     # N-gram collection
     ap.add_argument("--min_len", type=int, default=None)
@@ -121,7 +117,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument(
         "--overwrite",
         action="store_true",
-        help="Overwrite an existing corpus-level result file.",
+        help="Recalculate a problem even when its completed RDS already exists.",
     )
 
     ap.set_defaults(
@@ -912,145 +908,124 @@ def process_problem(
 def main() -> None:
     args = parse_args()
 
+    selected_problem = args.problem.strip().strip('"').strip("'")
+    if not selected_problem:
+        raise ValueError("--problem cannot be empty")
+
     model_name = os.path.basename(os.path.normpath(args.model_loc))
-    file_prefix = "_".join(
-        [
-            safe_filename(args.data_type),
-            safe_filename(args.corpus),
-            safe_filename(model_name),
-            "ngram_sampling",
-        ]
-    )
+    problem_filename = f"{safe_filename(selected_problem)}.rds"
 
-    result_path = resolve_rds_path(
-        args.save_loc,
-        f"{file_prefix}.rds",
-    )
-
-    if args.error_save_loc is None:
-        error_path = derive_error_path(result_path)
-    else:
-        error_path = resolve_rds_path(
-            args.error_save_loc,
-            f"{file_prefix}_errors.rds",
-        )
+    result_path = resolve_rds_path(args.save_loc, problem_filename)
+    error_path = resolve_rds_path(args.error_save_loc, problem_filename)
 
     if os.path.exists(result_path) and not args.overwrite:
-        print(
-            f"Result file already exists: {result_path}\n"
-            "Use --overwrite to replace it."
-        )
+        print(f"Completed result already exists; skipping: {result_path}")
         return
 
-    print("Loading model")
-    tokenizer, model = load_model(args.model_loc)
+    if args.overwrite and os.path.exists(result_path):
+        os.remove(result_path)
 
-    print("Loading known, unknown, and metadata tables")
-    known = apply_temp_doc_id(read_jsonl(args.known_loc))
-    unknown = apply_temp_doc_id(read_jsonl(args.unknown_loc))
-    metadata = read_rds(args.metadata_loc)
+    print("============================================================")
+    print(f"DATA_TYPE    : {args.data_type}")
+    print(f"CORPUS       : {args.corpus}")
+    print(f"PROBLEM      : {selected_problem}")
+    print(f"SCORING_MODEL: {model_name}")
+    print(f"RESULT_PATH  : {result_path}")
+    print(f"ERROR_PATH   : {error_path}")
+    print("============================================================")
 
-    required_metadata_columns = {
-        "corpus",
-        "problem",
-        "known_author",
-        "unknown_author",
-    }
-    missing_metadata_columns = required_metadata_columns.difference(metadata.columns)
-    if missing_metadata_columns:
-        raise KeyError(
-            "Metadata is missing columns: "
-            + ", ".join(sorted(missing_metadata_columns))
+    try:
+        print("Loading model")
+        tokenizer, model = load_model(args.model_loc)
+
+        print("Loading known, unknown, and metadata tables")
+        known = apply_temp_doc_id(read_jsonl(args.known_loc))
+        unknown = apply_temp_doc_id(read_jsonl(args.unknown_loc))
+        metadata = read_rds(args.metadata_loc)
+
+        required_metadata_columns = {
+            "corpus",
+            "problem",
+            "known_author",
+            "unknown_author",
+        }
+        missing_metadata_columns = required_metadata_columns.difference(
+            metadata.columns
         )
-
-    for table_name, table in (("known", known), ("unknown", unknown)):
-        missing_columns = {"author", "text"}.difference(table.columns)
-        if missing_columns:
+        if missing_metadata_columns:
             raise KeyError(
-                f"{table_name} data is missing columns: "
-                + ", ".join(sorted(missing_columns))
+                "Metadata is missing columns: "
+                + ", ".join(sorted(missing_metadata_columns))
             )
 
-    corpus_metadata = metadata[metadata["corpus"] == args.corpus].copy()
-    if corpus_metadata.empty:
-        raise ValueError(
-            f"No metadata rows were found for corpus {args.corpus!r}"
+        for table_name, table in (("known", known), ("unknown", unknown)):
+            missing_columns = {"author", "text"}.difference(table.columns)
+            if missing_columns:
+                raise KeyError(
+                    f"{table_name} data is missing columns: "
+                    + ", ".join(sorted(missing_columns))
+                )
+
+        corpus_metadata = metadata[metadata["corpus"] == args.corpus].copy()
+        if corpus_metadata.empty:
+            raise ValueError(
+                f"No metadata rows were found for corpus {args.corpus!r}"
+            )
+
+        problem_results = process_problem(
+            problem=selected_problem,
+            corpus_metadata=corpus_metadata,
+            known=known,
+            unknown=unknown,
+            tokenizer=tokenizer,
+            model=model,
+            model_name=model_name,
+            args=args,
         )
 
-    problems = sorted(
-        corpus_metadata["problem"].dropna().drop_duplicates().tolist(),
-        key=str,
-    )
-    if not problems:
-        raise ValueError(
-            f"No problems were found for corpus {args.corpus!r}"
+        sort_columns = RESULT_METADATA_COLUMNS.copy()
+        if "min_token_size" in problem_results.columns:
+            sort_columns.append("min_token_size")
+        problem_results = (
+            problem_results
+            .sort_values(sort_columns)
+            .reset_index(drop=True)
         )
 
-    print(f"Found {len(problems)} problems for {args.data_type} / {args.corpus}")
+        write_rds(problem_results, result_path)
 
-    result_tables: List[pd.DataFrame] = []
-    error_rows: List[Dict[str, Any]] = []
+        # Remove a stale error record when a previously failing problem succeeds.
+        if os.path.exists(error_path):
+            os.remove(error_path)
 
-    for problem_number, problem in enumerate(problems, start=1):
-        print(f"[{problem_number}/{len(problems)}] Processing problem: {problem}")
+        print(
+            f"Completed {selected_problem}: "
+            f"saved {len(problem_results)} row(s) to {result_path}"
+        )
 
-        try:
-            problem_results = process_problem(
-                problem=problem,
-                corpus_metadata=corpus_metadata,
-                known=known,
-                unknown=unknown,
-                tokenizer=tokenizer,
-                model=model,
-                model_name=model_name,
-                args=args,
-            )
-            result_tables.append(problem_results)
-            print(
-                f"[{problem_number}/{len(problems)}] Completed {problem}: "
-                f"{len(problem_results)} result row(s)"
-            )
-
-        except Exception as exc:
-            reason = str(exc).strip() or repr(exc)
-            error_rows.append(
+    except Exception as exc:
+        reason = str(exc).strip() or repr(exc)
+        error_df = pd.DataFrame(
+            [
                 {
                     "data_type": args.data_type,
                     "corpus": args.corpus,
-                    "problem": str(problem),
+                    "problem": selected_problem,
                     "error_type": type(exc).__name__,
                     "error_reason": reason,
                 }
-            )
-            print(
-                f"[{problem_number}/{len(problems)}] Failed {problem}: "
-                f"{type(exc).__name__}: {reason}"
-            )
+            ],
+            columns=ERROR_COLUMNS,
+        )
 
-    if result_tables:
-        corpus_results = pd.concat(result_tables, ignore_index=True)
-        sort_columns = RESULT_METADATA_COLUMNS.copy()
-        if "min_token_size" in corpus_results.columns:
-            sort_columns.append("min_token_size")
-        corpus_results = corpus_results.sort_values(sort_columns).reset_index(drop=True)
-    else:
-        corpus_results = pd.DataFrame(columns=RESULT_METADATA_COLUMNS)
+        write_rds(error_df, error_path)
 
-    error_df = pd.DataFrame(error_rows, columns=ERROR_COLUMNS)
-    if not error_df.empty:
-        error_df = error_df.sort_values(
-            ["data_type", "corpus", "problem"]
-        ).reset_index(drop=True)
+        print(
+            f"Failed {selected_problem}: "
+            f"{type(exc).__name__}: {reason}"
+        )
+        print(f"Saved error record to: {error_path}")
 
-    write_rds(corpus_results, result_path)
-    write_rds(error_df, error_path)
-
-    print(f"Saved {len(corpus_results)} result row(s) to: {result_path}")
-    print(f"Saved {len(error_df)} error row(s) to: {error_path}")
-    print(
-        f"Problems completed: {len(result_tables)} / {len(problems)}; "
-        f"problems failed: {len(error_df)}"
-    )
 
 
 if __name__ == "__main__":

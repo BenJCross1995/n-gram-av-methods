@@ -1,4 +1,5 @@
 #!/bin/bash --login
+# REFACTORED: submits MODEL -> CORPUS -> DATA_TYPE arrays, with test before training.
 
 #SBATCH -J submit_ngram_sampling
 #SBATCH -p himem
@@ -26,24 +27,29 @@ EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
 
 EXPERIMENT_NAME="ngram_sampling"
 
-# The corpus-level Python script is in notebooks rather than scripts.
+# This filename is unchanged, but it now processes one --problem per call.
 PYTHON_SCRIPT="${PROJECT_ROOT}/notebooks/testing/method_testing/n_gram_sampling/score_ngram_sampling_corpus.py"
 
-# Child jobscript that runs one complete corpus.
 JOB_SCRIPT="${PROJECT_ROOT}/notebooks/testing/method_testing/n_gram_sampling/run_ngram_sampling.txt"
+PROBLEM_LIST_NAME="agg_problem_list.txt"
+
+COMPLETED_SUBDIR="completed"
+ERROR_SUBDIR="errors"
 
 # Logs
 LOG_DIR="${PROJECT_ROOT}/slurm_logs/${EXPERIMENT_NAME}"
 mkdir -p "${LOG_DIR}"
 
-# Whether to chain each submitted child job after the previous one.
-CHAIN_JOBS=false
-
-# Shared SLURM settings for child jobs.
+# Shared SLURM settings for child array jobs
 CHILD_PARTITION="himem"
 CHILD_TIME="7-0"
 CHILD_NTASKS="1"
 CHILD_MEM="64G"
+
+# When true, the training array for a model/corpus starts only after the
+# corresponding test array has finished. afterany allows training to run even
+# when individual test tasks record errors.
+CHAIN_DATA_TYPES=true
 
 # ============================================================
 # Experiment settings
@@ -54,7 +60,7 @@ MAX_ATTEMPTS=1000
 SEED=42
 SCORE_COL="sum_log_probs"
 
-# Leave blank to avoid filtering the collected n-grams before scoring.
+# Leave blank to avoid filtering before scoring.
 MIN_LEN=""
 MAX_LEN=""
 
@@ -63,7 +69,7 @@ GREATEST_COMMON=true
 USE_BOS=true
 USE_MIN_TOKEN_SIZE=true
 
-# Existing result files are skipped unless this is true.
+# Existing files in completed/ are skipped unless this is true.
 OVERWRITE=false
 
 # ============================================================
@@ -91,6 +97,12 @@ CORPORA=(
     "Yelp"
 )
 
+CORPORA=(
+    "Enron Cleaned"
+    "StackExchange"
+)
+
+# This order is respected inside each model/corpus pair.
 DATA_TYPES=(
     "test"
     "training"
@@ -112,6 +124,11 @@ slugify() {
     printf '%s\n' "$x"
 }
 
+count_nonempty_lines() {
+    local file="$1"
+    awk 'NF {c++} END {print c+0}' "$file"
+}
+
 # ============================================================
 # Validate shared files before submitting anything
 # ============================================================
@@ -129,10 +146,9 @@ if [[ ! -f "${JOB_SCRIPT}" ]]; then
 fi
 
 # ============================================================
-# Submit one job per model, data type, and corpus
+# Submit arrays in MODEL -> CORPUS -> DATA_TYPE order
 # ============================================================
 
-PREV_JOB_ID=""
 SUBMITTED_COUNT=0
 SKIPPED_COUNT=0
 
@@ -147,68 +163,83 @@ for MODEL in "${MODEL_LIST[@]}"; do
         continue
     fi
 
-    for DATA_TYPE in "${DATA_TYPES[@]}"; do
-        METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
+    for CORPUS in "${CORPORA[@]}"; do
+        # Reset dependency for each new model/corpus pair.
+        PREVIOUS_DATA_TYPE_JOB_ID=""
 
-        if [[ ! -f "${METADATA_LOC}" ]]; then
-            echo "Skipping missing metadata:"
-            echo "  ${METADATA_LOC}"
-            echo
-            SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-            continue
-        fi
-
-        for CORPUS in "${CORPORA[@]}"; do
+        for DATA_TYPE in "${DATA_TYPES[@]}"; do
+            METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
             KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
             UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+            PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
 
-            if [[ ! -f "${KNOWN_LOC}" ]]; then
-                echo "Skipping missing known data:"
-                echo "  ${KNOWN_LOC}"
+            MISSING_INPUT=false
+
+            for REQUIRED_FILE in \
+                "${METADATA_LOC}" \
+                "${KNOWN_LOC}" \
+                "${UNKNOWN_LOC}" \
+                "${PROBLEM_LIST}"; do
+                if [[ ! -f "${REQUIRED_FILE}" ]]; then
+                    echo "Skipping missing input:"
+                    echo "  ${REQUIRED_FILE}"
+                    echo
+                    MISSING_INPUT=true
+                    break
+                fi
+            done
+
+            if [[ "${MISSING_INPUT}" == "true" ]]; then
+                SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+                continue
+            fi
+
+            NUM_TASKS="$(count_nonempty_lines "${PROBLEM_LIST}")"
+
+            if [[ "${NUM_TASKS}" -eq 0 ]]; then
+                echo "Skipping empty problem list:"
+                echo "  ${PROBLEM_LIST}"
                 echo
                 SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
                 continue
             fi
 
-            if [[ ! -f "${UNKNOWN_LOC}" ]]; then
-                echo "Skipping missing unknown data:"
-                echo "  ${UNKNOWN_LOC}"
-                echo
-                SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-                continue
-            fi
-
-            JOB_NAME="ngram_sampling_$(slugify "${CORPUS}")_$(slugify "${DATA_TYPE}")_$(slugify "${MODEL}")"
+            JOB_NAME="ngram_sampling_$(slugify "${MODEL}")_$(slugify "${CORPUS}")_$(slugify "${DATA_TYPE}")"
 
             echo "------------------------------------------------------------"
             echo "Submitting:"
-            echo "  EXPERIMENT         = ${EXPERIMENT_NAME}"
-            echo "  DATA_TYPE          = ${DATA_TYPE}"
-            echo "  CORPUS             = ${CORPUS}"
             echo "  MODEL              = ${MODEL}"
+            echo "  CORPUS             = ${CORPUS}"
+            echo "  DATA_TYPE          = ${DATA_TYPE}"
+            echo "  PROBLEM_LIST       = ${PROBLEM_LIST}"
+            echo "  NUM_TASKS          = ${NUM_TASKS}"
             echo "  JOB_NAME           = ${JOB_NAME}"
-            echo "  N_SAMPLES          = ${N_SAMPLES}"
-            echo "  MAX_ATTEMPTS       = ${MAX_ATTEMPTS}"
-            echo "  SEED               = ${SEED}"
-            echo "  USE_MIN_TOKEN_SIZE = ${USE_MIN_TOKEN_SIZE}"
+            echo "  COMPLETED_SUBDIR   = ${COMPLETED_SUBDIR}"
+            echo "  ERROR_SUBDIR       = ${ERROR_SUBDIR}"
 
             SBATCH_ARGS=(
                 --parsable
                 --job-name "${JOB_NAME}"
+                --array "1-${NUM_TASKS}"
                 -p "${CHILD_PARTITION}"
                 -t "${CHILD_TIME}"
                 -n "${CHILD_NTASKS}"
                 --mem "${CHILD_MEM}"
-                -o "${LOG_DIR}/%x_%j.out"
-                -e "${LOG_DIR}/%x_%j.err"
+                -o "${LOG_DIR}/%x_%A_%a.out"
+                -e "${LOG_DIR}/%x_%A_%a.err"
             )
 
-            if [[ "${CHAIN_JOBS}" == "true" && -n "${PREV_JOB_ID}" ]]; then
-                SBATCH_ARGS+=(--dependency="afterok:${PREV_JOB_ID}")
-                echo "  DEPENDS ON         = ${PREV_JOB_ID}"
+            if [[ \
+                "${CHAIN_DATA_TYPES}" == "true" \
+                && -n "${PREVIOUS_DATA_TYPE_JOB_ID}" \
+            ]]; then
+                SBATCH_ARGS+=(
+                    --dependency="afterany:${PREVIOUS_DATA_TYPE_JOB_ID}"
+                )
+                echo "  DEPENDS ON         = ${PREVIOUS_DATA_TYPE_JOB_ID}"
             fi
 
-            JOB_ID="$(
+            JOB_ID_RAW="$(
                 CORPUS="${CORPUS}" \
                 DATA_TYPE="${DATA_TYPE}" \
                 MODEL="${MODEL}" \
@@ -217,6 +248,9 @@ for MODEL in "${MODEL_LIST[@]}"; do
                 EXPERIMENT_ROOT="${EXPERIMENT_ROOT}" \
                 EXPERIMENT_NAME="${EXPERIMENT_NAME}" \
                 PYTHON_SCRIPT="${PYTHON_SCRIPT}" \
+                PROBLEM_LIST_NAME="${PROBLEM_LIST_NAME}" \
+                COMPLETED_SUBDIR="${COMPLETED_SUBDIR}" \
+                ERROR_SUBDIR="${ERROR_SUBDIR}" \
                 N_SAMPLES="${N_SAMPLES}" \
                 MAX_ATTEMPTS="${MAX_ATTEMPTS}" \
                 SEED="${SEED}" \
@@ -231,18 +265,18 @@ for MODEL in "${MODEL_LIST[@]}"; do
                 sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
             )"
 
-            echo "  SUBMITTED ID       = ${JOB_ID}"
+            # --parsable may append a cluster name after a semicolon.
+            JOB_ID="${JOB_ID_RAW%%;*}"
+
+            echo "  SUBMITTED ID       = ${JOB_ID_RAW}"
             echo
 
+            PREVIOUS_DATA_TYPE_JOB_ID="${JOB_ID}"
             SUBMITTED_COUNT=$((SUBMITTED_COUNT + 1))
-
-            if [[ "${CHAIN_JOBS}" == "true" ]]; then
-                PREV_JOB_ID="${JOB_ID}"
-            fi
         done
     done
 done
 
 echo "All submissions complete."
-echo "Submitted jobs: ${SUBMITTED_COUNT}"
+echo "Submitted array jobs: ${SUBMITTED_COUNT}"
 echo "Skipped combinations: ${SKIPPED_COUNT}"

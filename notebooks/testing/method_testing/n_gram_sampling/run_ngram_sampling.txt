@@ -1,4 +1,5 @@
 #!/bin/bash --login
+# REFACTORED: one SLURM array task per problem from agg_problem_list.txt.
 
 #SBATCH -n 1
 
@@ -23,6 +24,9 @@ conda activate venv
 : "${EXPERIMENT_ROOT:?Missing EXPERIMENT_ROOT}"
 : "${EXPERIMENT_NAME:?Missing EXPERIMENT_NAME}"
 : "${PYTHON_SCRIPT:?Missing PYTHON_SCRIPT}"
+: "${PROBLEM_LIST_NAME:?Missing PROBLEM_LIST_NAME}"
+: "${COMPLETED_SUBDIR:?Missing COMPLETED_SUBDIR}"
+: "${ERROR_SUBDIR:?Missing ERROR_SUBDIR}"
 
 : "${N_SAMPLES:?Missing N_SAMPLES}"
 : "${MAX_ATTEMPTS:?Missing MAX_ATTEMPTS}"
@@ -39,67 +43,59 @@ USE_MIN_TOKEN_SIZE="${USE_MIN_TOKEN_SIZE:-true}"
 OVERWRITE="${OVERWRITE:-false}"
 
 # ============================================================
-# Helpers
+# Build paths
 # ============================================================
 
-slugify() {
-    local x="$1"
-    x="${x,,}"        # lowercase
-    x="${x// /_}"     # spaces -> underscores
-    x="${x//\'/}"     # remove apostrophes
-    x="${x//,/}"      # remove commas
-    x="${x//\//_}"    # slashes -> underscores
-    x="${x//(/}"      # remove (
-    x="${x//)/}"      # remove )
-    printf '%s\n' "$x"
-}
-
-# ============================================================
-# Build input and output paths
-# ============================================================
-
+PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
 KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
 UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
 METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
 MODEL_LOC="${MODEL_ROOT}/${MODEL}"
 
-CORPUS_SLUG="$(slugify "${CORPUS}")"
+OUTPUT_ROOT="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}"
+SAVE_LOC="${OUTPUT_ROOT}/${COMPLETED_SUBDIR}"
+ERROR_SAVE_LOC="${OUTPUT_ROOT}/${ERROR_SUBDIR}"
 
-# One result file per corpus, separated first by data type and then model.
-SAVE_DIR="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${MODEL}"
-ERROR_DIR="${SAVE_DIR}/errors"
+mkdir -p "${SAVE_LOC}" "${ERROR_SAVE_LOC}"
 
-SAVE_LOC="${SAVE_DIR}/${CORPUS_SLUG}.rds"
-ERROR_SAVE_LOC="${ERROR_DIR}/${CORPUS_SLUG}_errors.rds"
+# ============================================================
+# Select the problem for this array task
+# Count only non-empty problem-list lines
+# ============================================================
 
-mkdir -p "${SAVE_DIR}" "${ERROR_DIR}"
+PROBLEM="$(awk -v n="${SLURM_ARRAY_TASK_ID}" 'NF {c++} c==n {print; exit}' "${PROBLEM_LIST}")"
+
+if [[ -z "${PROBLEM:-}" ]]; then
+    echo "ERROR: No problem found for array task ${SLURM_ARRAY_TASK_ID}"
+    echo "Problem list: ${PROBLEM_LIST}"
+    exit 1
+fi
 
 # ============================================================
 # Display job configuration
 # ============================================================
 
 echo "============================================================"
-echo "EXPERIMENT        : ${EXPERIMENT_NAME}"
-echo "DATA_TYPE         : ${DATA_TYPE}"
-echo "CORPUS            : ${CORPUS}"
-echo "MODEL             : ${MODEL}"
-echo "KNOWN_LOC         : ${KNOWN_LOC}"
-echo "UNKNOWN_LOC       : ${UNKNOWN_LOC}"
-echo "METADATA_LOC      : ${METADATA_LOC}"
-echo "MODEL_LOC         : ${MODEL_LOC}"
-echo "SAVE_LOC          : ${SAVE_LOC}"
-echo "ERROR_SAVE_LOC    : ${ERROR_SAVE_LOC}"
-echo "N_SAMPLES         : ${N_SAMPLES}"
-echo "MAX_ATTEMPTS      : ${MAX_ATTEMPTS}"
-echo "SEED              : ${SEED}"
-echo "SCORE_COL         : ${SCORE_COL}"
-echo "MIN_LEN           : ${MIN_LEN:-None}"
-echo "MAX_LEN           : ${MAX_LEN:-None}"
-echo "LOWERCASE         : ${LOWERCASE}"
-echo "GREATEST_COMMON   : ${GREATEST_COMMON}"
-echo "USE_BOS           : ${USE_BOS}"
-echo "USE_MIN_TOKEN_SIZE: ${USE_MIN_TOKEN_SIZE}"
-echo "OVERWRITE         : ${OVERWRITE}"
+echo "EXPERIMENT         : ${EXPERIMENT_NAME}"
+echo "DATA_TYPE          : ${DATA_TYPE}"
+echo "CORPUS             : ${CORPUS}"
+echo "MODEL              : ${MODEL}"
+echo "ARRAY_TASK_ID      : ${SLURM_ARRAY_TASK_ID}"
+echo "PROBLEM            : ${PROBLEM}"
+echo "PROBLEM_LIST       : ${PROBLEM_LIST}"
+echo "SAVE_LOC           : ${SAVE_LOC}"
+echo "ERROR_SAVE_LOC     : ${ERROR_SAVE_LOC}"
+echo "N_SAMPLES          : ${N_SAMPLES}"
+echo "MAX_ATTEMPTS       : ${MAX_ATTEMPTS}"
+echo "SEED               : ${SEED}"
+echo "SCORE_COL          : ${SCORE_COL}"
+echo "MIN_LEN            : ${MIN_LEN:-None}"
+echo "MAX_LEN            : ${MAX_LEN:-None}"
+echo "LOWERCASE          : ${LOWERCASE}"
+echo "GREATEST_COMMON    : ${GREATEST_COMMON}"
+echo "USE_BOS            : ${USE_BOS}"
+echo "USE_MIN_TOKEN_SIZE : ${USE_MIN_TOKEN_SIZE}"
+echo "OVERWRITE          : ${OVERWRITE}"
 echo "============================================================"
 
 # ============================================================
@@ -115,6 +111,7 @@ PYTHON_ARGS=(
     --error_save_loc "${ERROR_SAVE_LOC}"
     --corpus "${CORPUS}"
     --data_type "${DATA_TYPE}"
+    --problem "${PROBLEM}"
     --n_samples "${N_SAMPLES}"
     --max_attempts "${MAX_ATTEMPTS}"
     --seed "${SEED}"
@@ -158,9 +155,9 @@ if [[ "${OVERWRITE}" == "true" ]]; then
 fi
 
 # ============================================================
-# Run one complete corpus
+# Run one problem
 # ============================================================
 
 python -u "${PYTHON_SCRIPT}" "${PYTHON_ARGS[@]}"
 
-echo "Finished successfully."
+echo "Finished array task successfully."
