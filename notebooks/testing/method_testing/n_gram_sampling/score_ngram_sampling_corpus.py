@@ -33,7 +33,11 @@ RESULT_METADATA_COLUMNS = [
     "data_type",
     "corpus",
     "problem",
+    "known_author",
+    "unknown_author",
+    "target",
     "scoring_model",
+    "n_samples",
 ]
 
 ERROR_COLUMNS = [
@@ -900,7 +904,11 @@ def process_problem(
     comparison_df.insert(0, "data_type", args.data_type)
     comparison_df.insert(1, "corpus", args.corpus)
     comparison_df.insert(2, "problem", str(problem))
-    comparison_df.insert(3, "scoring_model", model_name)
+    comparison_df.insert(3, "known_author", known_author)
+    comparison_df.insert(4, "unknown_author", unknown_author)
+    comparison_df.insert(5, "target", known_author == unknown_author)
+    comparison_df.insert(6, "scoring_model", model_name)
+    comparison_df.insert(7, "n_samples", args.n_samples)
 
     return comparison_df
 
