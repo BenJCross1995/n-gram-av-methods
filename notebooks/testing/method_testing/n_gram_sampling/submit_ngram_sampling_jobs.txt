@@ -100,6 +100,8 @@ CORPORA=(
 CORPORA=(
     "Enron Cleaned"
     "StackExchange"
+    "Perverted Justice"
+    "Wiki"
 )
 
 # This order is respected inside each model/corpus pair.
