@@ -32,6 +32,7 @@ JOB_SCRIPT="${PROJECT_ROOT}/jobscripts/concat_logprobs/run_gc_concat_scoring.txt
 EXPERIMENT_NAME="concat_ngram_masking_logprobs_gc"
 SAVE_SUBDIR="raw"
 COMPLETED_SUBDIR="raw"
+ERROR_SUBDIR="errors"
 
 # Problem list file name to look for
 PROBLEM_LIST_NAME="agg_problem_list.txt"
@@ -93,11 +94,6 @@ DATA_TYPES=(
 FIXED_NUM_TOKENS=(
     0 10 20 30 40 50 60 70 80 90 100
     200 300 400 500 600 700 800 900 1000
-)
-
-FIXED_NUM_TOKENS=(
-    0 10 20 30 40 50 60 70 80 90 100
-    1000
 )
 
 # ============================================================
@@ -190,6 +186,7 @@ for MODEL in "${MODEL_LIST[@]}"; do
                 EXPERIMENT_NAME="${EXPERIMENT_NAME}" \
                 SAVE_SUBDIR="${SAVE_SUBDIR}" \
                 COMPLETED_SUBDIR="${COMPLETED_SUBDIR}" \
+                ERROR_SUBDIR="${ERROR_SUBDIR}" \
                 PROBLEM_LIST_NAME="${PROBLEM_LIST_NAME}" \
                 MULTI_SCRIPT="${MULTI_SCRIPT}" \
                 CONCAT_SCRIPT="${CONCAT_SCRIPT}" \

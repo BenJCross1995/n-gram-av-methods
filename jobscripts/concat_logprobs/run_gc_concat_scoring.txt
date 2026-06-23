@@ -27,6 +27,7 @@ conda activate venv
 : "${EXPERIMENT_NAME:?Missing EXPERIMENT_NAME}"
 : "${SAVE_SUBDIR:?Missing SAVE_SUBDIR}"
 : "${COMPLETED_SUBDIR:?Missing COMPLETED_SUBDIR}"
+: "${ERROR_SUBDIR:?Missing ERROR_SUBDIR}"
 : "${PROBLEM_LIST_NAME:?Missing PROBLEM_LIST_NAME}"
 
 : "${MULTI_SCRIPT:?Missing MULTI_SCRIPT}"
@@ -49,8 +50,9 @@ MODEL_LOC="${MODEL_ROOT}/${MODEL}"
 
 SAVE_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${SAVE_SUBDIR}"
 COMPLETED_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${COMPLETED_SUBDIR}"
+ERROR_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${ERROR_SUBDIR}"
 
-mkdir -p "${SAVE_LOC}" "${COMPLETED_LOC}"
+mkdir -p "${SAVE_LOC}" "${COMPLETED_LOC}" "${ERROR_LOC}"
 
 # ============================================================
 # Get problem for this array task
@@ -74,6 +76,7 @@ echo "PROBLEM          : ${PROBLEM}"
 echo "PROBLEM_LIST     : ${PROBLEM_LIST}"
 echo "SAVE_LOC         : ${SAVE_LOC}"
 echo "COMPLETED_LOC    : ${COMPLETED_LOC}"
+echo "ERROR_LOC        : ${ERROR_LOC}"
 echo "FIXED_NUM_TOKENS : ${FIXED_NUM_TOKENS}"
 echo "GREATEST_COMMON  : true"
 echo "============================================================"
@@ -89,6 +92,7 @@ COMMON_ARGS=(
     --model_loc "${MODEL_LOC}"
     --save_loc "${SAVE_LOC}"
     --completed_loc "${COMPLETED_LOC}"
+    --error_loc "${ERROR_LOC}"
     --corpus "${CORPUS}"
     --data_type "${DATA_TYPE}"
     --problem "${PROBLEM}"
