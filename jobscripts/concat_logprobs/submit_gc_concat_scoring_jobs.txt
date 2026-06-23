@@ -46,7 +46,8 @@ SCORE_SCRIPT_NAME="score_ngrams_concat"
 RUN_MULTI=true
 
 # Run for raw on its own
-RUN_CONCAT=false
+# SET TO GET COMPLETION RATES
+RUN_CONCAT=true
 
 # Logs
 # Files saved as: ${LOG_DIR}/<job_name>_<array_job_id>_<array_task_id>.{out,err}
