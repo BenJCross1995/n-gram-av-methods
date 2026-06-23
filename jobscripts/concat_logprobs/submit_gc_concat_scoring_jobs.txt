@@ -49,7 +49,9 @@ RUN_MULTI=true
 RUN_CONCAT=false
 
 # Logs
-LOG_DIR="${PROJECT_ROOT}/slurm_logs"
+# Files saved as: ${LOG_DIR}/<job_name>_<array_job_id>_<array_task_id>.{out,err}
+# Example: /mnt/hum01-home01/d34195bc/slurm_logs/tr_wiki_gpt2_123456_7.out
+LOG_DIR="/mnt/hum01-home01/d34195bc/slurm_logs"
 mkdir -p "${LOG_DIR}"
 
 # Whether to chain each submitted job after the last one
@@ -115,16 +117,33 @@ FIXED_NUM_TOKENS=(
 # Helpers
 # ============================================================
 
-slugify() {
-    local x="$1"
-    x="${x,,}"        # lowercase
-    x="${x// /_}"     # spaces -> underscores
-    x="${x//\'/}"     # remove apostrophes
-    x="${x//,/}"      # remove commas
-    x="${x//\//_}"    # slashes -> underscores
-    x="${x//(/}"      # remove (
-    x="${x//)/}"      # remove )
-    printf '%s\n' "$x"
+short_corpus() {
+    # Short codes for each corpus to keep job names compact
+    case "$1" in
+        "ACL")               echo "acl" ;;
+        "All-the-news")      echo "news" ;;
+        "Amazon")            echo "amzn" ;;
+        "Enron Cleaned")     echo "enron" ;;
+        "IMDB")              echo "imdb" ;;
+        "Koppel's Blogs")    echo "blogs" ;;
+        "Perverted Justice") echo "pj" ;;
+        "Reddit")            echo "reddit" ;;
+        "StackExchange")     echo "stack" ;;
+        "The Apricity")      echo "apric" ;;
+        "The Telegraph")     echo "tele" ;;
+        "TripAdvisor")       echo "trip" ;;
+        "Wiki")              echo "wiki" ;;
+        "Yelp")              echo "yelp" ;;
+        *)                   echo "$1" | tr '[:upper:] ' '[:lower:]_' ;;
+    esac
+}
+
+short_data_type() {
+    case "$1" in
+        "training") echo "tr" ;;
+        "test")     echo "te" ;;
+        *)          echo "$1" ;;
+    esac
 }
 
 count_nonempty_lines() {
@@ -160,7 +179,9 @@ for MODEL in "${MODEL_LIST[@]}"; do
                 continue
             fi
 
-            JOB_NAME="$(slugify "${CORPUS}")_$(slugify "${DATA_TYPE}")_$(slugify "${MODEL}")"
+            # Compact job name: <data_type>_<corpus>_<model>
+            # e.g. tr_wiki_gpt2, te_enron_gpt2
+            JOB_NAME="$(short_data_type "${DATA_TYPE}")_$(short_corpus "${CORPUS}")_${MODEL}"
 
             echo "------------------------------------------------------------"
             echo "Submitting:"
