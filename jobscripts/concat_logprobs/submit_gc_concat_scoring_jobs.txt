@@ -86,6 +86,21 @@ CORPORA=(
     "Yelp"
 )
 
+CORPORA=(
+    "ACL"
+    "All-the-news"
+    "Amazon"
+    "Enron Cleaned"
+    "IMDB"
+    "Koppel's Blogs"
+    "Perverted Justice"
+    "StackExchange"
+    "The Apricity"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
 DATA_TYPES=(
     "test"
     "training"
