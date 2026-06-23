@@ -22,6 +22,7 @@ def parse_args():
     ap.add_argument("--model_loc")
     ap.add_argument("--save_loc")
     ap.add_argument("--completed_loc", default=None)
+    ap.add_argument("--error_loc", default=None)
 
     # Dataset hinting
     ap.add_argument("--corpus", type=str, default="Wiki")
@@ -112,18 +113,23 @@ def main():
     if args.lowercase:
         base_cmd.append("--lowercase")
 
-    # Only pass completed_loc if provided
+    # Only pass completed_loc/error_loc if provided
     has_completed = bool(args.completed_loc)
+    has_error = bool(args.error_loc)
 
     for nt in fixed_num_tokens:
         save_loc_nt = with_suffix_dir(args.save_loc, nt)
         completed_loc_nt = with_suffix_dir(args.completed_loc, nt) if has_completed else None
+        error_loc_nt = with_suffix_dir(args.error_loc, nt) if has_error else None
 
         cmd = base_cmd.copy()
         cmd += ["--save_loc", save_loc_nt]
 
         if has_completed:
             cmd += ["--completed_loc", completed_loc_nt]
+
+        if has_error:
+            cmd += ["--error_loc", error_loc_nt]
 
         cmd += ["--num_tokens", str(nt)]
 

@@ -2,6 +2,7 @@
 import argparse
 import os
 import sys
+import traceback
 
 import pandas as pd
 
@@ -9,7 +10,7 @@ from from_root import from_root
 
 sys.path.insert(0, str(from_root("src")))
 
-from read_and_write_docs import read_jsonl, read_rds
+from read_and_write_docs import read_jsonl, read_rds, write_rds
 from model_loading import load_model
 from utils import apply_temp_doc_id, build_metadata_df
 from n_gram_tracing import (
@@ -29,6 +30,7 @@ def parse_args():
     ap.add_argument("--model_loc")
     ap.add_argument("--save_loc")
     ap.add_argument("--completed_loc", default=None)
+    ap.add_argument("--error_loc", default=None)
     # Dataset hinting
     ap.add_argument("--corpus", default="Wiki")
     ap.add_argument("--data_type", default="training")
@@ -56,10 +58,8 @@ def parse_args():
     
     return ap.parse_args()
 
-def main():
-    
-    args=parse_args()
-    
+
+def run_pipeline(args):
     # Ensure the directory exists before beginning
     os.makedirs(args.save_loc, exist_ok=True)
     
@@ -75,12 +75,12 @@ def main():
         completed_loc = f"{args.completed_loc}/{selected_problem}.xlsx"
         if os.path.exists(completed_loc):
             print(f"Result for {selected_problem} already exists in the completed folder. Exiting.")
-            sys.exit()
+            return
     
     # Skip the problem if already exists
     if os.path.exists(save_loc):
         print(f"Path {save_loc} already exists. Exiting.")
-        sys.exit()
+        return
         
     print(f"Working on problem: {selected_problem}")
     
@@ -236,7 +236,7 @@ def main():
         overall_problem_metadata['num_problems'] == overall_problem_metadata['ngrams_found']
     )
     
-    # Get the no context scores
+    # Get the no context scores
     print("Scoring the No Context n-grams")
     no_context_df = score_ngrams_to_df(
         filtered_ngrams,
@@ -265,6 +265,50 @@ def main():
         metadata = overall_problem_metadata,
         path = save_loc
     )
+
+
+def main():
+    args = parse_args()
+    
+    try:
+        run_pipeline(args)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"ERROR encountered while processing problem: {args.problem}")
+        print(tb)
+        
+        if args.error_loc is not None:
+            selected_problem = args.problem.strip().strip('"').strip("'")
+            os.makedirs(args.error_loc, exist_ok=True)
+            
+            # Grab values from the failed run's local scope
+            frame = e.__traceback__
+            while frame.tb_next is not None and frame.tb_frame.f_code.co_name != "run_pipeline":
+                frame = frame.tb_next
+            local_vars = frame.tb_frame.f_locals
+            
+            known_author = local_vars["known_author"]
+            unknown_author = local_vars["unknown_author"]
+            
+            error_df = pd.DataFrame([{
+                "data_type": args.data_type,
+                "corpus": args.corpus,
+                "scoring_model": local_vars["model_name"],
+                "max_context_tokens": args.num_tokens,
+                "problem": selected_problem,
+                "known_author": known_author,
+                "unknown_author": unknown_author,
+                "target": known_author == unknown_author,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": tb,
+            }])
+            
+            error_file = f"{args.error_loc}/{selected_problem}.rds"
+            write_rds(error_df, error_file)
+            print(f"Error info written to {error_file}")
+        else:
+            raise
         
 if __name__ == "__main__":
     main()
