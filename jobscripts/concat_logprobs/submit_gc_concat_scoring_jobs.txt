@@ -50,10 +50,13 @@ RUN_MULTI=true
 RUN_CONCAT=true
 
 # Logs
-# Files saved as: ${LOG_DIR}/<job_name>_<array_job_id>_<array_task_id>.{out,err}
-# Example: /mnt/hum01-home01/d34195bc/slurm_logs/tr_wiki_gpt2_123456_7.out
-LOG_DIR="/mnt/hum01-home01/d34195bc/slurm_logs"
-mkdir -p "${LOG_DIR}"
+# Files saved as:
+# ${LOG_ROOT}/${DATA_TYPE}/${CORPUS}/${MODEL}/<job_name>_<array_job_id>_<array_task_id>.{out,err}
+#
+# Example:
+# /mnt/hum01-home01/d34195bc/slurm_logs/test/Wiki/gpt2/te_wiki_gpt2_123456_7.out
+LOG_ROOT="/mnt/hum01-home01/d34195bc/slurm_logs"
+mkdir -p "${LOG_ROOT}"
 
 # Whether to chain each submitted job after the last one
 CHAIN_JOBS=false
@@ -72,23 +75,7 @@ MODEL_LIST=(
     "gpt2"
 )
 
-CORPORA=(
-    "ACL"
-    "All-the-news"
-    "Amazon"
-    "Enron Cleaned"
-    "IMDB"
-    "Koppel's Blogs"
-    "Perverted Justice"
-    "Reddit"
-    "StackExchange"
-    "The Apricity"
-    "The Telegraph"
-    "TripAdvisor"
-    "Wiki"
-    "Yelp"
-)
-
+# Removed Reddit and The Telegraph since not in paper
 CORPORA=(
     "ACL"
     "All-the-news"
@@ -184,6 +171,11 @@ for MODEL in "${MODEL_LIST[@]}"; do
             # e.g. tr_wiki_gpt2, te_enron_gpt2
             JOB_NAME="$(short_data_type "${DATA_TYPE}")_$(short_corpus "${CORPUS}")_${MODEL}"
 
+            # Logs are stored under:
+            # ${LOG_ROOT}/${DATA_TYPE}/${CORPUS}/${MODEL}
+            JOB_LOG_DIR="${LOG_ROOT}/${DATA_TYPE}/${CORPUS}/${MODEL}"
+            mkdir -p "${JOB_LOG_DIR}"
+
             echo "------------------------------------------------------------"
             echo "Submitting:"
             echo "  CORPUS           = ${CORPUS}"
@@ -192,6 +184,7 @@ for MODEL in "${MODEL_LIST[@]}"; do
             echo "  PROBLEM_LIST     = ${PROBLEM_LIST}"
             echo "  NUM_TASKS        = ${NUM_TASKS}"
             echo "  JOB_NAME         = ${JOB_NAME}"
+            echo "  LOG_DIR          = ${JOB_LOG_DIR}"
             echo "  FIXED_NUM_TOKENS = ${FIXED_NUM_TOKENS[*]}"
 
             SBATCH_ARGS=(
@@ -202,13 +195,13 @@ for MODEL in "${MODEL_LIST[@]}"; do
                 -t "${CHILD_TIME}"
                 -n "${CHILD_NTASKS}"
                 --mem "${CHILD_MEM}"
-                -o "${LOG_DIR}/%x_%A_%a.out"
-                -e "${LOG_DIR}/%x_%A_%a.err"
+                -o "${JOB_LOG_DIR}/%x_%A_%a.out"
+                -e "${JOB_LOG_DIR}/%x_%A_%a.err"
             )
 
             if [[ "${CHAIN_JOBS}" == "true" && -n "${PREV_JOB_ID}" ]]; then
                 SBATCH_ARGS+=(--dependency="afterok:${PREV_JOB_ID}")
-                echo "  DEPENDS ON   = ${PREV_JOB_ID}"
+                echo "  DEPENDS ON       = ${PREV_JOB_ID}"
             fi
 
             JOB_ID="$(
@@ -234,7 +227,7 @@ for MODEL in "${MODEL_LIST[@]}"; do
                 sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
             )"
 
-            echo "  SUBMITTED ID = ${JOB_ID}"
+            echo "  SUBMITTED ID     = ${JOB_ID}"
             echo
 
             if [[ "${CHAIN_JOBS}" == "true" ]]; then
