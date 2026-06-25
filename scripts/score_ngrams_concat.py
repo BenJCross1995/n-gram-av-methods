@@ -6,6 +6,7 @@ import traceback
 
 import pandas as pd
 
+from datetime import datetime
 from from_root import from_root
 
 sys.path.insert(0, str(from_root("src")))
@@ -281,30 +282,57 @@ def main():
             selected_problem = args.problem.strip().strip('"').strip("'")
             os.makedirs(args.error_loc, exist_ok=True)
             
-            # Grab values from the failed run's local scope
+            # Try to get local variables from run_pipeline, if available
             frame = e.__traceback__
-            while frame.tb_next is not None and frame.tb_frame.f_code.co_name != "run_pipeline":
+            while (
+                frame.tb_next is not None
+                and frame.tb_frame.f_code.co_name != "run_pipeline"
+            ):
                 frame = frame.tb_next
+
             local_vars = frame.tb_frame.f_locals
-            
-            known_author = local_vars["known_author"]
-            unknown_author = local_vars["unknown_author"]
-            
-            error_df = pd.DataFrame([{
+
+            known_author = local_vars.get("known_author", None)
+            unknown_author = local_vars.get("unknown_author", None)
+            model_name = local_vars.get(
+                "model_name",
+                os.path.basename(os.path.normpath(args.model_loc))
+                if args.model_loc is not None
+                else None
+            )
+
+            target = (
+                known_author == unknown_author
+                if known_author is not None and unknown_author is not None
+                else None
+            )
+
+            new_error_df = pd.DataFrame([{
+                "error_sent_datetime": datetime.now().astimezone().isoformat(timespec="seconds"),
                 "data_type": args.data_type,
                 "corpus": args.corpus,
-                "scoring_model": local_vars["model_name"],
+                "scoring_model": model_name,
                 "max_context_tokens": args.num_tokens,
                 "problem": selected_problem,
                 "known_author": known_author,
                 "unknown_author": unknown_author,
-                "target": known_author == unknown_author,
+                "target": target,
                 "error_type": type(e).__name__,
                 "error_message": str(e),
                 "traceback": tb,
             }])
             
             error_file = f"{args.error_loc}/{selected_problem}.rds"
+
+            if os.path.exists(error_file):
+                existing_error_df = read_rds(error_file)
+                error_df = pd.concat(
+                    [existing_error_df, new_error_df],
+                    ignore_index=True
+                )
+            else:
+                error_df = new_error_df
+
             write_rds(error_df, error_file)
             print(f"Error info written to {error_file}")
         else:
