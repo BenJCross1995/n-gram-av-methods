@@ -1,0 +1,232 @@
+#!/bin/bash --login
+
+#SBATCH -J submit_gc_concat_scores
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -euo pipefail
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# ============================================================
+# Central shared settings
+# ============================================================
+
+PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+SCRIPT_ROOT="${PROJECT_ROOT}/scripts"
+
+DATA_ROOT="/mnt/hum01-home01/d34195bc/av_datasets"
+MODEL_ROOT="/mnt/hum01-home01/d34195bc/models"
+EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
+
+# Generic array jobscript that actually does the work
+JOB_SCRIPT="${PROJECT_ROOT}/jobscripts/concat_logprobs/run_gc_concat_scoring.txt"
+
+# Experiment naming
+EXPERIMENT_NAME="concat_ngram_masking_logprobs_gc"
+SAVE_SUBDIR="raw"
+COMPLETED_SUBDIR="raw"
+ERROR_SUBDIR="errors"
+
+# Problem list file name to look for
+PROBLEM_LIST_NAME="agg_problem_list.txt"
+
+# Python scripts / shared script settings
+MULTI_SCRIPT="score_ngrams_multi.py"
+CONCAT_SCRIPT="score_ngrams_concat.py"
+SCORE_SCRIPT_NAME="score_ngrams_concat"
+
+# Which scripts to run
+RUN_MULTI=true
+
+# Run for raw on its own
+# SET TO GET COMPLETION RATES
+RUN_CONCAT=true
+
+# Logs
+# Files saved as:
+# ${LOG_ROOT}/${DATA_TYPE}/${CORPUS}/${MODEL}/<job_name>_<array_job_id>_<array_task_id>.{out,err}
+#
+# Example:
+# /mnt/hum01-home01/d34195bc/slurm_logs/test/Wiki/gpt2/te_wiki_gpt2_123456_7.out
+LOG_ROOT="/mnt/hum01-home01/d34195bc/slurm_logs"
+mkdir -p "${LOG_ROOT}"
+
+# Whether to chain each submitted job after the last one
+CHAIN_JOBS=false
+
+# Shared SLURM settings for child jobs
+CHILD_PARTITION="himem"
+CHILD_TIME="7-0"
+CHILD_NTASKS="1"
+CHILD_MEM="64G"
+
+# ============================================================
+# Lists to edit
+# ============================================================
+
+MODEL_LIST=(
+    "gpt2"
+)
+
+# Removed Reddit and The Telegraph since not in paper
+CORPORA=(
+    "The Apricity"
+    "TripAdvisor"
+    "Wiki"
+    "Yelp"
+)
+
+DATA_TYPES=(
+    "training"
+)
+
+FIXED_NUM_TOKENS=(
+    0 10 20 30 40 50 60 70 80 90 100
+    200 300 400 500 600 700 800 900 1000
+)
+
+# ============================================================
+# Helpers
+# ============================================================
+
+short_corpus() {
+    # Short codes for each corpus to keep job names compact
+    case "$1" in
+        "ACL")               echo "acl" ;;
+        "All-the-news")      echo "news" ;;
+        "Amazon")            echo "amzn" ;;
+        "Enron Cleaned")     echo "enron" ;;
+        "IMDB")              echo "imdb" ;;
+        "Koppel's Blogs")    echo "blogs" ;;
+        "Perverted Justice") echo "pj" ;;
+        "Reddit")            echo "reddit" ;;
+        "StackExchange")     echo "stack" ;;
+        "The Apricity")      echo "apric" ;;
+        "The Telegraph")     echo "tele" ;;
+        "TripAdvisor")       echo "trip" ;;
+        "Wiki")              echo "wiki" ;;
+        "Yelp")              echo "yelp" ;;
+        *)                   echo "$1" | tr '[:upper:] ' '[:lower:]_' ;;
+    esac
+}
+
+short_data_type() {
+    case "$1" in
+        "training") echo "tr" ;;
+        "test")     echo "te" ;;
+        *)          echo "$1" ;;
+    esac
+}
+
+count_nonempty_lines() {
+    local file="$1"
+    awk 'NF {c++} END {print c+0}' "$file"
+}
+
+# ============================================================
+# Submit loop
+# ============================================================
+
+PREV_JOB_ID=""
+
+for MODEL in "${MODEL_LIST[@]}"; do
+    for DATA_TYPE in "${DATA_TYPES[@]}"; do
+        for CORPUS in "${CORPORA[@]}"; do
+
+            PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
+
+            if [[ ! -f "${PROBLEM_LIST}" ]]; then
+                echo "Skipping missing problem list:"
+                echo "  ${PROBLEM_LIST}"
+                echo
+                continue
+            fi
+
+            NUM_TASKS="$(count_nonempty_lines "${PROBLEM_LIST}")"
+
+            if [[ "${NUM_TASKS}" -eq 0 ]]; then
+                echo "Skipping empty problem list:"
+                echo "  ${PROBLEM_LIST}"
+                echo
+                continue
+            fi
+
+            # Compact job name: <data_type>_<corpus>_<model>
+            # e.g. tr_wiki_gpt2, te_enron_gpt2
+            JOB_NAME="$(short_data_type "${DATA_TYPE}")_$(short_corpus "${CORPUS}")_${MODEL}"
+
+            # Logs are stored under:
+            # ${LOG_ROOT}/${DATA_TYPE}/${CORPUS}/${MODEL}
+            JOB_LOG_DIR="${LOG_ROOT}/${DATA_TYPE}/${CORPUS}/${MODEL}"
+            mkdir -p "${JOB_LOG_DIR}"
+
+            echo "------------------------------------------------------------"
+            echo "Submitting:"
+            echo "  CORPUS           = ${CORPUS}"
+            echo "  DATA_TYPE        = ${DATA_TYPE}"
+            echo "  MODEL            = ${MODEL}"
+            echo "  PROBLEM_LIST     = ${PROBLEM_LIST}"
+            echo "  NUM_TASKS        = ${NUM_TASKS}"
+            echo "  JOB_NAME         = ${JOB_NAME}"
+            echo "  LOG_DIR          = ${JOB_LOG_DIR}"
+            echo "  FIXED_NUM_TOKENS = ${FIXED_NUM_TOKENS[*]}"
+
+            SBATCH_ARGS=(
+                --parsable
+                --job-name "${JOB_NAME}"
+                --array "1-${NUM_TASKS}"
+                -p "${CHILD_PARTITION}"
+                -t "${CHILD_TIME}"
+                -n "${CHILD_NTASKS}"
+                --mem "${CHILD_MEM}"
+                -o "${JOB_LOG_DIR}/%x_%A_%a.out"
+                -e "${JOB_LOG_DIR}/%x_%A_%a.err"
+            )
+
+            if [[ "${CHAIN_JOBS}" == "true" && -n "${PREV_JOB_ID}" ]]; then
+                SBATCH_ARGS+=(--dependency="afterok:${PREV_JOB_ID}")
+                echo "  DEPENDS ON       = ${PREV_JOB_ID}"
+            fi
+
+            JOB_ID="$(
+                CORPUS="${CORPUS}" \
+                DATA_TYPE="${DATA_TYPE}" \
+                MODEL="${MODEL}" \
+                PROJECT_ROOT="${PROJECT_ROOT}" \
+                SCRIPT_ROOT="${SCRIPT_ROOT}" \
+                DATA_ROOT="${DATA_ROOT}" \
+                MODEL_ROOT="${MODEL_ROOT}" \
+                EXPERIMENT_ROOT="${EXPERIMENT_ROOT}" \
+                EXPERIMENT_NAME="${EXPERIMENT_NAME}" \
+                SAVE_SUBDIR="${SAVE_SUBDIR}" \
+                COMPLETED_SUBDIR="${COMPLETED_SUBDIR}" \
+                ERROR_SUBDIR="${ERROR_SUBDIR}" \
+                PROBLEM_LIST_NAME="${PROBLEM_LIST_NAME}" \
+                MULTI_SCRIPT="${MULTI_SCRIPT}" \
+                CONCAT_SCRIPT="${CONCAT_SCRIPT}" \
+                SCORE_SCRIPT_NAME="${SCORE_SCRIPT_NAME}" \
+                RUN_MULTI="${RUN_MULTI}" \
+                RUN_CONCAT="${RUN_CONCAT}" \
+                FIXED_NUM_TOKENS="${FIXED_NUM_TOKENS[*]}" \
+                sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
+            )"
+
+            echo "  SUBMITTED ID     = ${JOB_ID}"
+            echo
+
+            if [[ "${CHAIN_JOBS}" == "true" ]]; then
+                PREV_JOB_ID="${JOB_ID}"
+            fi
+
+        done
+    done
+done
+
+echo "All submissions complete."
