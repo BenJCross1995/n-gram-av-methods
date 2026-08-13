@@ -77,14 +77,11 @@ MODEL_LIST=(
 
 # Removed Reddit and The Telegraph since not in paper
 CORPORA=(
-    "The Apricity"
-    "TripAdvisor"
-    "Wiki"
-    "Yelp"
+    "All-the-news"
 )
 
 DATA_TYPES=(
-    "training"
+    "test"
 )
 
 FIXED_NUM_TOKENS=(
