@@ -21,6 +21,47 @@ def load_model(model_loc: str, load_model: bool = True):
     else:
         return tokenizer
 
+def get_max_tokens(model=None, tokenizer=None):
+    """
+    Return the maximum number of tokens supported by a model or tokenizer.
+
+    The model configuration is checked first using `max_position_embeddings`.
+    If this is unavailable, the tokenizer's `model_max_length` is used instead.
+
+    Parameters
+    ----------
+    model : transformers.PreTrainedModel, optional
+        Hugging Face model object.
+
+    tokenizer : transformers.PreTrainedTokenizer, optional
+        Hugging Face tokenizer object.
+
+    Returns
+    -------
+    int or None
+        Maximum supported token length, or None if it cannot be determined.
+    """
+
+    # Prefer the model configuration, as this usually reflects the model's
+    # actual maximum context length.
+    if model is not None:
+        max_tokens = getattr(model.config, "max_position_embeddings", None)
+
+        if max_tokens is not None:
+            return max_tokens
+
+    # Fall back to the tokenizer's configured maximum sequence length.
+    if tokenizer is not None:
+        max_tokens = getattr(tokenizer, "model_max_length", None)
+
+        # Some tokenizers use an extremely large placeholder value when
+        # no explicit maximum length has been defined.
+        if max_tokens is not None and max_tokens < 1e20:
+            return max_tokens
+
+    # Maximum length could not be determined.
+    return None
+
 # -------------------------------------------------------------- #
 # -- FUNCTIONS TO GET SPECIAL WHITESPACE CHARACTERS FOR MODEL -- #
 # -------------------------------------------------------------- #
