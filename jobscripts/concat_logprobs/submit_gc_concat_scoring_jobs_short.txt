@@ -47,7 +47,7 @@ RUN_MULTI=true
 
 # Run for raw on its own
 # SET TO GET COMPLETION RATES
-RUN_CONCAT=true
+RUN_CONCAT=false
 
 # Logs
 # Files saved as:
@@ -77,11 +77,13 @@ MODEL_LIST=(
 
 # Removed Reddit and The Telegraph since not in paper
 CORPORA=(
+    "ACL"
     "All-the-news"
 )
 
 DATA_TYPES=(
     "test"
+    "training"
 )
 
 FIXED_NUM_TOKENS=(
