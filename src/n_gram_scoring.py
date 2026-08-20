@@ -83,30 +83,20 @@ def score_ngrams(
         tokenizer,
     )
 
-    ngram_len = len(phrase_ids_list)
+    # Store the original length before any possible truncation.
+    original_ngram_len = len(phrase_ids_list)
 
-    # If no surrounding text is supplied, score the n-gram itself.
-    seq_text = phrase if text is None else text
+    # Get the model's maximum supported sequence length.
+    model_max_tokens = get_max_tokens(
+        model=model,
+        tokenizer=tokenizer,
+    )
 
-    # Apply the same lowercasing behaviour to the complete input.
-    seq_for_tok = seq_text.casefold() if lowercase else seq_text
-    
-    # Tokenise without special tokens.
-    # BOS is added manually below if required.
-    input_ids = tokenizer(
-        seq_for_tok,
-        add_special_tokens=False,
-        return_tensors="pt",
-    )["input_ids"]
+    # ------------------------------------------------------------
+    # Find BOS token
+    # ------------------------------------------------------------
 
-    # Put the model into evaluation mode.
-    model.eval()
-
-    # Move the input onto the same device as the model.
-    device = next(model.parameters()).device
-    input_ids = input_ids.to(device)
-
-    # Try to obtain the BOS token from the tokenizer.
+    # Prefer the tokenizer's BOS token.
     bos_id = getattr(
         tokenizer,
         "bos_token_id",
@@ -121,10 +111,123 @@ def score_ngrams(
             None,
         )
 
-    # Only use BOS if requested and one is actually available.
-    has_bos = use_bos and (bos_id is not None)
+    # Track whether this exceptional long-n-gram case occurs.
+    ngram_truncated = False
+
+    # ------------------------------------------------------------
+    # Handle an n-gram that is itself too long for the model
+    # ------------------------------------------------------------
+    #
+    # In this situation, trimming preceding document context is not
+    # sufficient because the n-gram alone exceeds the model window.
+    #
+    # Instead, score the longest PREFIX of the n-gram that can fit.
+    #
+    # If BOS is available, reserve one position for it so that the
+    # first retained n-gram token can also receive a probability.
+    #
+    # Example for a 1024-token model:
+    #
+    #     BOS             = 1
+    #     n-gram prefix   = 1023
+    #     ----------------------
+    #     model input     = 1024
+    #
+    # This only applies when the n-gram itself is too large.
+    # Normal context handling is otherwise unchanged.
+    # ------------------------------------------------------------
     
-    # Add BOS manually where required.
+    if (
+        model_max_tokens is not None
+        and original_ngram_len >= model_max_tokens
+    ):
+        ngram_truncated = True
+
+        # Reserve one position for BOS where possible.
+        if bos_id is not None:
+            max_ngram_tokens = model_max_tokens - 1
+        else:
+            # If the model has no BOS token, use the complete model
+            # window. In this case the first token cannot itself
+            # receive a causal probability.
+            max_ngram_tokens = model_max_tokens
+
+        # Keep the beginning of the original n-gram.
+        ngram_tokens = ngram_tokens[:max_ngram_tokens]
+        phrase_ids_list = phrase_ids_list[:max_ngram_tokens]
+
+        # Update the displayed phrase so that it represents exactly
+        # the portion of the n-gram that was actually scored.
+        phrase = tokens_to_text(
+            ngram_tokens,
+            tokenizer,
+        )
+
+    # Number of n-gram tokens that will actually be scored.
+    ngram_len = len(phrase_ids_list)
+    
+
+    # ------------------------------------------------------------
+    # Build model input
+    # ------------------------------------------------------------
+
+    if ngram_truncated:
+        # IMPORTANT:
+        #
+        # `text` may contain context + the complete original n-gram.
+        # We must therefore NOT use it in this exceptional case.
+        #
+        # Instead, construct the input directly from the truncated
+        # n-gram IDs. This guarantees that we score the FIRST tokens
+        # of the original n-gram rather than accidentally scoring the
+        # final tokens of an over-length sequence.
+        input_ids = torch.tensor(
+            [phrase_ids_list],
+            dtype=torch.long,
+        )
+
+    else:
+        # Preserve the original behaviour for normal n-grams.
+        #
+        # If no surrounding text is supplied, score the n-gram itself.
+        seq_text = phrase if text is None else text
+
+        # Apply the configured lowercasing behaviour.
+        seq_for_tok = (
+            seq_text.casefold()
+            if lowercase
+            else seq_text
+        )
+
+        # Tokenise without automatically adding special tokens.
+        input_ids = tokenizer(
+            seq_for_tok,
+            add_special_tokens=False,
+            return_tensors="pt",
+        )["input_ids"]
+
+    # Put the model into evaluation mode.
+    model.eval()
+    
+    # Move the input onto the same device as the model.
+    device = next(model.parameters()).device
+    input_ids = input_ids.to(device)
+
+    # ------------------------------------------------------------
+    # BOS handling
+    # ------------------------------------------------------------
+
+    if ngram_truncated:
+        # For a truncated n-gram, use BOS whenever one is available.
+        #
+        # This allows the first retained n-gram token to receive a
+        # causal probability.
+        has_bos = bos_id is not None
+
+    else:
+        # Preserve the normal requested BOS behaviour.
+        has_bos = use_bos and (bos_id is not None)
+
     if has_bos:
         bos = torch.tensor(
             [[int(bos_id)]],
@@ -140,7 +243,9 @@ def score_ngrams(
     else:
         ids_for_model = input_ids
 
-    # Convert the token IDs back to strings for reporting.
+    # Convert the ordinary input IDs back to tokens for reporting.
+    #
+    # BOS is deliberately not included in `tokens` or `text_len`.
     tokens: List[str] = tokenizer.convert_ids_to_tokens(
         input_ids[0].tolist()
     )
@@ -150,15 +255,14 @@ def score_ngrams(
     # ------------------------------------------------------------
     # Calculate token-level causal log probabilities
     # ------------------------------------------------------------
-    
+
     if text_len == 0:
         log_probs: List[Optional[float]] = []
 
     elif text_len == 1:
 
-        # If BOS is available, it can be used to predict the first
-        # actual token in the sequence.
         if has_bos:
+            # BOS predicts the first actual token.
             with torch.no_grad():
                 logits = model(
                     input_ids=ids_for_model
@@ -182,8 +286,8 @@ def score_ngrams(
             log_probs = [float(val)]
 
         else:
-            # Without BOS, there is no preceding token from which
-            # to calculate the probability of the first token.
+            # Without BOS, the first token has nothing before it
+            # from which its probability can be calculated.
             log_probs = [None]
 
     else:
@@ -194,9 +298,7 @@ def score_ngrams(
                 input_ids=ids_for_model
             ).logits
 
-            # Convert logits to log probabilities.
-            #
-            # Each position predicts the token immediately following it.
+            # Position t predicts the token at position t + 1.
             lp_vocab = F.log_softmax(
                 logits[:, :-1, :],
                 dim=-1,
@@ -204,8 +306,8 @@ def score_ngrams(
 
             next_ids = ids_for_model[:, 1:]
 
-            # Extract the log probability assigned to the token that
-            # actually occurred at each subsequent position.
+            # Extract the probability assigned to the token that
+            # actually occurred at each position.
             vals = (
                 lp_vocab
                 .gather(
@@ -219,15 +321,26 @@ def score_ngrams(
             )
 
         if has_bos:
-            # BOS allows every actual input token to receive a score.
-            log_probs = [float(v) for v in vals]
+            # With BOS, every ordinary input token has a score.
+            log_probs = [
+                float(v)
+                for v in vals
+            ]
 
         else:
-            # Without BOS, the first token cannot receive a score.
-            log_probs = [None] + [float(v) for v in vals]
+            # Without BOS, the first ordinary token cannot be scored.
+            log_probs = [
+                None
+            ] + [
+                float(v)
+                for v in vals
+            ]
 
-    # The n-gram occurs at the end of the input sequence, so select
-    # the final ngram_len token probabilities.
+    # ------------------------------------------------------------
+    # Extract only the n-gram probabilities
+    # ------------------------------------------------------------
+
+    # The scored n-gram occurs at the end of the model input.
     tail = (
         log_probs[-ngram_len:]
         if ngram_len <= len(log_probs)
@@ -241,8 +354,8 @@ def score_ngrams(
         if v is not None
     ]
 
-    # Sum the token-level log probabilities to produce the
-    # occurrence-level n-gram score.
+    # Sum the token-level probabilities to produce the overall
+    # n-gram score.
     ngram_sum_log_probs = float(
         sum(ngram_log_probs)
     )
@@ -250,10 +363,20 @@ def score_ngrams(
     return {
         "phrase": phrase,
         "tokens": ngram_tokens,
+
+        # Number of tokens actually scored.
         "num_tokens": ngram_len,
+
+        # Original length before the exceptional truncation.
+        "original_num_tokens": original_ngram_len,
+
+        # Makes these rare cases easy to identify later.
+        "ngram_truncated": ngram_truncated,
+
         "text_len": text_len,
         "log_probs": ngram_log_probs,
         "sum_log_probs": ngram_sum_log_probs,
+
         # "text_tokens": tokens,
         # "text_log_probs": log_probs,
     }
@@ -283,6 +406,10 @@ def score_ngrams_to_df(
     context, n-gram, and optional BOS token fit within the model's
     maximum token limit.
 
+    If the n-gram itself exceeds the model context window, no preceding
+    context is added here. `score_ngrams()` then handles the oversized
+    n-gram by scoring the longest prefix that fits.
+    
     IMPORTANT:
         `num_tokens=None` retains the original behaviour and uses the
         complete prefix without applying this context-window cap.
@@ -502,49 +629,54 @@ def score_ngrams_to_df(
 
                 else:
 
-                    # Calculate how much space remains for preceding
-                    # context once the full n-gram and optional BOS
-                    # token have been accounted for.
-                    #
-                    # Example:
-                    #
-                    # model maximum = 1024
-                    # n-gram length = 961
-                    # BOS           = 0
-                    #
-                    # available context = 1024 - 961 = 63
+                    # Calculate how much space remains for context
+                    # after accounting for the complete n-gram and
+                    # optional BOS token.
                     available_context_tokens = (
                         model_max_tokens
                         - ngram_len
                         - bos_tokens
                     )
 
-                    # If this is negative, the n-gram itself is larger
-                    # than the model's context window. Removing context
-                    # cannot solve that case.
+                    # ------------------------------------------------
+                    # N-gram itself exceeds the model context window
+                    # ------------------------------------------------
+                    #
+                    # Previously this raised an error.
+                    #
+                    # We now deliberately use zero preceding context
+                    # and allow score_ngrams() to handle the oversized
+                    # n-gram. It will retain the longest prefix that
+                    # can be scored by the model.
+                    #
+                    # Example with GPT-2:
+                    #
+                    # original n-gram = 1361 tokens
+                    # model maximum   = 1024
+                    #
+                    # score_ngrams() will score:
+                    #
+                    # BOS             = 1
+                    # n-gram prefix   = 1023
+                    # ---------------------
+                    # total           = 1024
+                    # ------------------------------------------------
+
                     if available_context_tokens < 0:
-                        raise ValueError(
-                            f"N-gram {phrase_num} contains "
-                            f"{ngram_len} tokens and cannot fit "
-                            f"within the model's "
-                            f"{model_max_tokens}-token context window."
+
+                        effective_num_tokens = 0
+
+                    else:
+
+                        # Otherwise use the smaller of:
+                        #
+                        # 1. requested context length
+                        # 2. context that fits in the model
+                        effective_num_tokens = min(
+                            num_tokens,
+                            available_context_tokens,
                         )
-
-                    # Use the requested context length unless it would
-                    # cause the complete model input to exceed the
-                    # context window.
-                    #
-                    # For example, if only 63 context tokens fit:
-                    #
-                    # num_tokens=50  -> use 50
-                    # num_tokens=60  -> use 60
-                    # num_tokens=70  -> use 63
-                    # num_tokens=100 -> use 63
-                    effective_num_tokens = min(
-                        num_tokens,
-                        available_context_tokens,
-                    )
-
+                        
                 # Build the occurrence text using the capped context
                 # length followed by the complete n-gram.
                 occ_text = get_trimmed_context_before_span(
