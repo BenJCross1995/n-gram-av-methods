@@ -41,7 +41,7 @@ SCORED_ERROR_SUBDIR="scored_errors"
 PROBLEM_LIST_NAME="agg_problem_list.txt"
 
 # Python scripts
-PARAPHRASE_SCRIPT="t5_paraphrase.py"
+PARAPHRASE_SCRIPT="generate_t5_paraphrases.py"
 SCORE_SCRIPT="t5_paraphrase_scoring.py"
 
 # ============================================================
