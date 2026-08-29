@@ -1,0 +1,319 @@
+#!/bin/bash --login
+
+#SBATCH -n 1
+
+set -euo pipefail
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# ============================================================
+# Required vars passed in from master submitter
+# ============================================================
+
+: "${CORPUS:?Missing CORPUS}"
+: "${DATA_TYPE:?Missing DATA_TYPE}"
+: "${MODEL:?Missing MODEL}"
+: "${T5_MODEL:?Missing T5_MODEL}"
+
+: "${PROJECT_ROOT:?Missing PROJECT_ROOT}"
+: "${SCRIPT_ROOT:?Missing SCRIPT_ROOT}"
+: "${DATA_ROOT:?Missing DATA_ROOT}"
+: "${MODEL_ROOT:?Missing MODEL_ROOT}"
+: "${EXPERIMENT_ROOT:?Missing EXPERIMENT_ROOT}"
+
+: "${EXPERIMENT_NAME:?Missing EXPERIMENT_NAME}"
+
+: "${RAW_SUBDIR:?Missing RAW_SUBDIR}"
+: "${SCORED_SUBDIR:?Missing SCORED_SUBDIR}"
+: "${RAW_ERROR_SUBDIR:?Missing RAW_ERROR_SUBDIR}"
+: "${SCORED_ERROR_SUBDIR:?Missing SCORED_ERROR_SUBDIR}"
+
+: "${PROBLEM_LIST_NAME:?Missing PROBLEM_LIST_NAME}"
+
+: "${PARAPHRASE_SCRIPT:?Missing PARAPHRASE_SCRIPT}"
+: "${SCORE_SCRIPT:?Missing SCORE_SCRIPT}"
+
+: "${RUN_PARAPHRASE:?Missing RUN_PARAPHRASE}"
+: "${RUN_SCORE:?Missing RUN_SCORE}"
+
+: "${MIN_LEN:?Missing MIN_LEN}"
+: "${GREATEST_COMMON:?Missing GREATEST_COMMON}"
+
+: "${LOWERCASE:?Missing LOWERCASE}"
+: "${LOWERCASE_INPUT:?Missing LOWERCASE_INPUT}"
+: "${LOWERCASE_OUTPUT:?Missing LOWERCASE_OUTPUT}"
+
+: "${MAX_LEFT_EXPANSION:?Missing MAX_LEFT_EXPANSION}"
+: "${MAX_RIGHT_EXPANSION:?Missing MAX_RIGHT_EXPANSION}"
+: "${CONTEXT_TOKENS:?Missing CONTEXT_TOKENS}"
+
+: "${NUM_BEAMS:?Missing NUM_BEAMS}"
+: "${NUM_BEAM_GROUPS:?Missing NUM_BEAM_GROUPS}"
+: "${NUM_RETURN_SEQUENCES:?Missing NUM_RETURN_SEQUENCES}"
+: "${DIVERSITY_PENALTY:?Missing DIVERSITY_PENALTY}"
+: "${MAX_NEW_TOKENS:?Missing MAX_NEW_TOKENS}"
+
+: "${SEMANTIC_MODEL:?Missing SEMANTIC_MODEL}"
+: "${NLI_MODEL:?Missing NLI_MODEL}"
+: "${FLUENCY_MODEL:?Missing FLUENCY_MODEL}"
+
+: "${SEMANTIC_WINDOWS:?Missing SEMANTIC_WINDOWS}"
+: "${NLI_WINDOWS:?Missing NLI_WINDOWS}"
+
+: "${FLUENCY_CONTEXT_TOKENS:?Missing FLUENCY_CONTEXT_TOKENS}"
+: "${PHRASE_CONTEXT_TOKENS:?Missing PHRASE_CONTEXT_TOKENS}"
+: "${METRICS_BATCH_SIZE:?Missing METRICS_BATCH_SIZE}"
+: "${KEEP_LOCAL_TEXT:?Missing KEEP_LOCAL_TEXT}"
+
+# Turn incoming space-separated strings into bash arrays
+read -r -a SEMANTIC_WINDOWS_ARR <<< "${SEMANTIC_WINDOWS}"
+read -r -a NLI_WINDOWS_ARR <<< "${NLI_WINDOWS}"
+
+# ============================================================
+# Build paths
+# ============================================================
+
+PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
+
+KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
+UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
+
+MODEL_LOC="${MODEL_ROOT}/${MODEL}"
+T5_MODEL_LOC="${MODEL_ROOT}/${T5_MODEL}"
+
+SEMANTIC_MODEL_LOC="${MODEL_ROOT}/${SEMANTIC_MODEL}"
+NLI_MODEL_LOC="${MODEL_ROOT}/${NLI_MODEL}"
+FLUENCY_MODEL_LOC="${MODEL_ROOT}/${FLUENCY_MODEL}"
+
+BASE_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${T5_MODEL}"
+
+RAW_SAVE_LOC="${BASE_LOC}/${RAW_SUBDIR}"
+RAW_COMPLETED_LOC="${BASE_LOC}/${RAW_SUBDIR}"
+RAW_ERROR_LOC="${BASE_LOC}/${RAW_ERROR_SUBDIR}"
+
+SCORED_SAVE_LOC="${BASE_LOC}/${SCORED_SUBDIR}"
+SCORED_ERROR_LOC="${BASE_LOC}/${SCORED_ERROR_SUBDIR}"
+
+mkdir -p \
+    "${RAW_SAVE_LOC}" \
+    "${RAW_COMPLETED_LOC}" \
+    "${RAW_ERROR_LOC}" \
+    "${SCORED_SAVE_LOC}" \
+    "${SCORED_ERROR_LOC}"
+
+# ============================================================
+# Get problem for this array task
+# Count only non-empty lines
+# ============================================================
+
+PROBLEM="$(awk -v n="$SLURM_ARRAY_TASK_ID" 'NF {c++} c==n {print; exit}' "${PROBLEM_LIST}")"
+
+if [[ -z "${PROBLEM:-}" ]]; then
+    echo "ERROR: No problem found for array task ${SLURM_ARRAY_TASK_ID}"
+    echo "Problem list: ${PROBLEM_LIST}"
+    exit 1
+fi
+
+# Match safe_problem_name() in the Python generation script.
+SAFE_PROBLEM="${PROBLEM//\//_}"
+SAFE_PROBLEM="${SAFE_PROBLEM//\\/_}"
+
+RAW_FILE="${RAW_SAVE_LOC}/${SAFE_PROBLEM}.rds"
+SCORED_FILE="${SCORED_SAVE_LOC}/${SAFE_PROBLEM}.rds"
+
+echo "============================================================"
+echo "T5 PARAPHRASE + METRIC SCORING"
+echo "============================================================"
+echo "CORPUS                    : ${CORPUS}"
+echo "DATA_TYPE                 : ${DATA_TYPE}"
+echo "MODEL                     : ${MODEL}"
+echo "T5_MODEL                  : ${T5_MODEL}"
+echo "TASK_ID                   : ${SLURM_ARRAY_TASK_ID}"
+echo "PROBLEM                   : ${PROBLEM}"
+echo "PROBLEM_LIST              : ${PROBLEM_LIST}"
+echo
+echo "RUN_PARAPHRASE            : ${RUN_PARAPHRASE}"
+echo "RUN_SCORE                 : ${RUN_SCORE}"
+echo
+echo "RAW_FILE                  : ${RAW_FILE}"
+echo "SCORED_FILE               : ${SCORED_FILE}"
+echo
+echo "SEMANTIC_MODEL            : ${SEMANTIC_MODEL}"
+echo "NLI_MODEL                 : ${NLI_MODEL}"
+echo "FLUENCY_MODEL             : ${FLUENCY_MODEL}"
+echo "SEMANTIC_WINDOWS          : ${SEMANTIC_WINDOWS}"
+echo "NLI_WINDOWS               : ${NLI_WINDOWS}"
+echo "FLUENCY_CONTEXT_TOKENS    : ${FLUENCY_CONTEXT_TOKENS}"
+echo "PHRASE_CONTEXT_TOKENS     : ${PHRASE_CONTEXT_TOKENS}"
+echo "METRICS_BATCH_SIZE        : ${METRICS_BATCH_SIZE}"
+echo "============================================================"
+
+# ============================================================
+# Step 1: Generate paraphrase candidates
+# ============================================================
+
+if [[ "${RUN_PARAPHRASE}" == "true" ]]; then
+
+    PARAPHRASE_ARGS=(
+        --known_loc "${KNOWN_LOC}"
+        --unknown_loc "${UNKNOWN_LOC}"
+        --metadata_loc "${METADATA_LOC}"
+        --model_loc "${MODEL_LOC}"
+        --t5_model_loc "${T5_MODEL_LOC}"
+        --save_loc "${RAW_SAVE_LOC}"
+        --completed_loc "${RAW_COMPLETED_LOC}"
+        --error_loc "${RAW_ERROR_LOC}"
+        --corpus "${CORPUS}"
+        --data_type "${DATA_TYPE}"
+        --problem "${PROBLEM}"
+        --min_len "${MIN_LEN}"
+        --max_left_expansion "${MAX_LEFT_EXPANSION}"
+        --max_right_expansion "${MAX_RIGHT_EXPANSION}"
+        --context_tokens "${CONTEXT_TOKENS}"
+        --num_beams "${NUM_BEAMS}"
+        --num_beam_groups "${NUM_BEAM_GROUPS}"
+        --num_return_sequences "${NUM_RETURN_SEQUENCES}"
+        --diversity_penalty "${DIVERSITY_PENALTY}"
+        --max_new_tokens "${MAX_NEW_TOKENS}"
+    )
+
+    if [[ -n "${MAX_LEN:-}" ]]; then
+        PARAPHRASE_ARGS+=(
+            --max_len "${MAX_LEN}"
+        )
+    fi
+
+    if [[ -n "${MAX_NGRAMS:-}" ]]; then
+        PARAPHRASE_ARGS+=(
+            --max_ngrams "${MAX_NGRAMS}"
+        )
+    fi
+
+    if [[ -n "${MAX_OCCURRENCES_PER_NGRAM:-}" ]]; then
+        PARAPHRASE_ARGS+=(
+            --max_occurrences_per_ngram "${MAX_OCCURRENCES_PER_NGRAM}"
+        )
+    fi
+
+    if [[ "${GREATEST_COMMON}" == "true" ]]; then
+        PARAPHRASE_ARGS+=(
+            --greatest_common
+        )
+    fi
+
+    if [[ "${LOWERCASE}" == "true" ]]; then
+        PARAPHRASE_ARGS+=(
+            --lowercase
+        )
+    else
+        PARAPHRASE_ARGS+=(
+            --no-lowercase
+        )
+    fi
+
+    if [[ "${LOWERCASE_INPUT}" == "true" ]]; then
+        PARAPHRASE_ARGS+=(
+            --lowercase-input
+        )
+    else
+        PARAPHRASE_ARGS+=(
+            --no-lowercase-input
+        )
+    fi
+
+    if [[ "${LOWERCASE_OUTPUT}" == "true" ]]; then
+        PARAPHRASE_ARGS+=(
+            --lowercase-output
+        )
+    else
+        PARAPHRASE_ARGS+=(
+            --no-lowercase-output
+        )
+    fi
+
+    echo
+    echo "============================================================"
+    echo "STEP 1: GENERATING PARAPHRASES"
+    echo "============================================================"
+
+    python -u "${SCRIPT_ROOT}/${PARAPHRASE_SCRIPT}" \
+        "${PARAPHRASE_ARGS[@]}"
+
+else
+    echo
+    echo "Skipping paraphrase generation."
+fi
+
+# ============================================================
+# Step 2: Score generated candidates
+# ============================================================
+
+if [[ "${RUN_SCORE}" == "true" ]]; then
+
+    if [[ ! -f "${RAW_FILE}" ]]; then
+        echo "ERROR: Raw paraphrase file does not exist after generation:"
+        echo "  ${RAW_FILE}"
+        exit 1
+    fi
+
+    if [[ -f "${SCORED_FILE}" ]]; then
+        echo
+        echo "Scored result already exists. Skipping metric scoring:"
+        echo "  ${SCORED_FILE}"
+    else
+
+        SCORE_ARGS=(
+            --input_loc "${RAW_FILE}"
+            --save_loc "${SCORED_FILE}"
+            --error_loc "${SCORED_ERROR_LOC}"
+            --semantic_model_loc "${SEMANTIC_MODEL_LOC}"
+            --nli_model_loc "${NLI_MODEL_LOC}"
+            --fluency_model_loc "${FLUENCY_MODEL_LOC}"
+            --ngram_tokenizer_loc "${MODEL_LOC}"
+            --t5_tokenizer_loc "${T5_MODEL_LOC}"
+            --semantic_windows "${SEMANTIC_WINDOWS_ARR[@]}"
+            --nli_windows "${NLI_WINDOWS_ARR[@]}"
+            --fluency_context_tokens "${FLUENCY_CONTEXT_TOKENS}"
+            --phrase_context_tokens "${PHRASE_CONTEXT_TOKENS}"
+            --batch_size "${METRICS_BATCH_SIZE}"
+        )
+
+        if [[ "${KEEP_LOCAL_TEXT}" == "true" ]]; then
+            SCORE_ARGS+=(
+                --keep_local_text
+            )
+        fi
+
+        if [[ -n "${MAX_SCORE_ROWS:-}" ]]; then
+            SCORE_ARGS+=(
+                --max_rows "${MAX_SCORE_ROWS}"
+            )
+        fi
+
+        echo
+        echo "============================================================"
+        echo "STEP 2: SCORING PARAPHRASE METRICS"
+        echo "============================================================"
+
+        python -u "${SCRIPT_ROOT}/${SCORE_SCRIPT}" \
+            "${SCORE_ARGS[@]}"
+    fi
+
+else
+    echo
+    echo "Skipping metric scoring."
+fi
+
+echo
+echo "============================================================"
+echo "Finished successfully."
+echo "RAW    : ${RAW_FILE}"
+if [[ "${RUN_SCORE}" == "true" ]]; then
+    echo "SCORED : ${SCORED_FILE}"
+fi
+echo "============================================================"
