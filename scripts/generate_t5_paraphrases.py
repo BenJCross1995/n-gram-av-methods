@@ -29,6 +29,9 @@ from n_gram_tracing import (
     filter_ngrams_with_outside_occurrences_in_both_texts,
 )
 
+PIPELINE_VERSION = "known_unknown_v2"
+
+
 from t5_paraphrase import (
     build_local_t5_context,
     create_expanded_occurrence_spans,
@@ -75,7 +78,8 @@ def parse_args():
     ap = argparse.ArgumentParser(
         description=(
             "Generate deterministic T5 span-infilling alternatives for "
-            "common n-gram occurrences in one authorship-verification problem."
+            "common n-gram occurrences in one authorship-verification problem, "
+            "including all known documents and the unknown document in one dataframe."
         )
     )
 
@@ -422,11 +426,244 @@ def build_common_ngram_set(
     )
 
 
+def process_document_paraphrases(
+    *,
+    document_type,
+    doc_number,
+    doc_id,
+    author,
+    text,
+    filtered_ngrams,
+    ngram_tokenizer,
+    ngram_model_name,
+    t5_tokenizer,
+    t5_model,
+    t5_model_name,
+    device,
+    args,
+    problem_metadata,
+):
+    """
+    Generate T5 candidate replacements for every eligible occurrence of the
+    retained common n-grams in one document.
+
+    The same function is used for known and unknown documents so both sides
+    of the AV problem are represented identically in the final dataframe.
+    """
+    print()
+    print("=" * 80)
+    print(
+        f"Processing {document_type} document "
+        f"{doc_number}: {doc_id}"
+    )
+    print("=" * 80)
+
+    source_token_data = prepare_source_token_data(
+        text=text,
+        tokenizer=ngram_tokenizer,
+        lowercase=args.lowercase,
+    )
+
+    full_tokens = source_token_data["tokens"]
+    rows = []
+
+    for ngram_index, ngram in enumerate(
+        filtered_ngrams,
+        start=1,
+    ):
+        ngram_text = ngram_tokens_to_text(
+            ngram,
+            ngram_tokenizer,
+        )
+
+        print(
+            f"[{document_type} {doc_number}] "
+            f"N-gram {ngram_index}/{len(filtered_ngrams)} "
+            f"(length={len(ngram)}): {ngram_text!r}"
+        )
+
+        # Mirror score_ngrams_to_df():
+        #   standard        -> all token occurrences
+        #   greatest_common -> only independent occurrences in THIS document
+        occurrence_spans = find_ngram_occurrence_spans(
+            full_tokens=full_tokens,
+            ngram_tokens=ngram,
+            all_ngrams=filtered_ngrams,
+            greatest_common=args.greatest_common,
+            allow_overlaps=False,
+        )
+
+        if args.max_occurrences_per_ngram is not None:
+            occurrence_spans = occurrence_spans[
+                :args.max_occurrences_per_ngram
+            ]
+
+        num_document_occurrences = len(occurrence_spans)
+
+        if num_document_occurrences == 0:
+            continue
+
+        expanded_spans = create_expanded_occurrence_spans(
+            source_token_data=source_token_data,
+            occurrence_spans=occurrence_spans,
+            max_left_expansion=args.max_left_expansion,
+            max_right_expansion=args.max_right_expansion,
+        )
+
+        for span in expanded_spans:
+            local = build_local_t5_context(
+                source_token_data=source_token_data,
+                span=span,
+                context_tokens=args.context_tokens,
+                lowercase_input=args.lowercase_input,
+            )
+
+            generation_start = time.perf_counter()
+
+            candidates = generate_t5_candidates(
+                masked_text=local["masked_text"],
+                original_span=local["generation_original_span"],
+                tokenizer=t5_tokenizer,
+                model=t5_model,
+                device=device,
+                num_beams=args.num_beams,
+                num_beam_groups=args.num_beam_groups,
+                num_return_sequences=args.num_return_sequences,
+                diversity_penalty=args.diversity_penalty,
+                max_new_tokens=args.max_new_tokens,
+                lowercase_output=args.lowercase_output,
+            )
+
+            generation_time_seconds = (
+                time.perf_counter()
+                - generation_start
+            )
+
+            for candidate_info in candidates:
+                reconstructed_text = reconstruct_candidate_context(
+                    generation_left_context=local[
+                        "generation_left_context"
+                    ],
+                    generation_right_context=local[
+                        "generation_right_context"
+                    ],
+                    candidate=candidate_info["candidate"],
+                    starts_with_space=candidate_info[
+                        "starts_with_space"
+                    ],
+                    lowercase_output=args.lowercase_output,
+                )
+
+                rows.append({
+                    # ----------------------------------------
+                    # Problem metadata
+                    # ----------------------------------------
+                    **problem_metadata,
+
+                    # ----------------------------------------
+                    # Document metadata
+                    # ----------------------------------------
+                    "document_type": document_type,
+                    "doc_number": doc_number,
+                    "doc_id": doc_id,
+                    "author": author,
+                    "document_num_tokens": len(full_tokens),
+
+                    # ----------------------------------------
+                    # Models/settings
+                    # ----------------------------------------
+                    "ngram_model": ngram_model_name,
+                    "t5_model": t5_model_name,
+                    "lowercase_ngrams": args.lowercase,
+                    "lowercase_input": args.lowercase_input,
+                    "lowercase_output": args.lowercase_output,
+                    "greatest_common": args.greatest_common,
+                    "context_tokens_each_side": args.context_tokens,
+                    "max_left_expansion": args.max_left_expansion,
+                    "max_right_expansion": args.max_right_expansion,
+                    "num_beams": args.num_beams,
+                    "num_beam_groups": args.num_beam_groups,
+                    "num_return_sequences": args.num_return_sequences,
+                    "diversity_penalty": args.diversity_penalty,
+                    "max_new_tokens": args.max_new_tokens,
+
+                    # ----------------------------------------
+                    # Original n-gram
+                    # ----------------------------------------
+                    "ngram_index": ngram_index,
+                    "ngram_len": len(ngram),
+                    "ngram_tokens": json.dumps(
+                        list(ngram),
+                        ensure_ascii=False,
+                    ),
+                    "ngram_text": ngram_text,
+                    "num_document_occurrences": num_document_occurrences,
+
+                    # ----------------------------------------
+                    # Occurrence / expanded source span
+                    # ----------------------------------------
+                    "occurrence_index": span["occurrence_index"],
+                    "ngram_token_start": span["ngram_token_start"],
+                    "ngram_token_end": span["ngram_token_end"],
+                    "span_token_start": span["span_token_start"],
+                    "span_token_end": span["span_token_end"],
+                    "left_expansion": span["left_expansion"],
+                    "right_expansion": span["right_expansion"],
+                    "char_start": span["char_start"],
+                    "char_end": span["char_end"],
+                    "span_tokens": json.dumps(
+                        span["span_tokens"],
+                        ensure_ascii=False,
+                    ),
+                    "original_span": span["original_span"],
+
+                    # ----------------------------------------
+                    # Local T5 context
+                    # ----------------------------------------
+                    "original_context": local["original_context"],
+                    "generation_original_context": local[
+                        "generation_original_context"
+                    ],
+                    "masked_text": local["masked_text"],
+
+                    # ----------------------------------------
+                    # Candidate
+                    # ----------------------------------------
+                    "candidate_rank": candidate_info["candidate_rank"],
+                    "generation_rank": candidate_info["generation_rank"],
+                    "candidate": candidate_info["candidate"],
+                    "generation_score": candidate_info[
+                        "generation_score"
+                    ],
+                    "starts_with_space": candidate_info[
+                        "starts_with_space"
+                    ],
+                    "candidate_tokens": json.dumps(
+                        candidate_info["candidate_tokens"],
+                        ensure_ascii=False,
+                    ),
+                    "reconstructed_text": reconstructed_text,
+                    "generation_time_seconds": generation_time_seconds,
+                    "offset_text_is_casefolded": source_token_data[
+                        "offset_text_is_casefolded"
+                    ],
+                })
+
+    print(
+        f"Finished {document_type} document {doc_number}. "
+        f"Generated {len(rows)} candidate rows."
+    )
+
+    return rows
+
+
 # ============================================================
 # Pipeline
 # ============================================================
 
 def run_pipeline(args):
+    print(f"Pipeline version: {PIPELINE_VERSION}")
+
     os.makedirs(
         args.save_loc,
         exist_ok=True,
@@ -625,21 +862,6 @@ def run_pipeline(args):
         )
     )
 
-    # Tokenise the unknown ONCE using the existing canonical path.
-    source_token_data = (
-        prepare_source_token_data(
-            text=unknown_text,
-            tokenizer=ngram_tokenizer,
-            lowercase=args.lowercase,
-        )
-    )
-
-    full_tokens = (
-        source_token_data[
-            "tokens"
-        ]
-    )
-
     # --------------------------------------------------------
     # Load T5
     # --------------------------------------------------------
@@ -669,7 +891,7 @@ def run_pipeline(args):
     )
 
     # --------------------------------------------------------
-    # Generate candidates
+    # Generate candidates from BOTH sides of the AV problem
     # --------------------------------------------------------
     rows = []
 
@@ -677,271 +899,81 @@ def run_pipeline(args):
         time.perf_counter()
     )
 
-    for ngram_index, ngram in enumerate(
-        filtered_ngrams,
-        start=1,
+    problem_metadata = {
+        "data_type": args.data_type,
+        "corpus": args.corpus,
+        "problem": selected_problem,
+        "known_author": known_author,
+        "unknown_author": unknown_author,
+        "target": target,
+        "num_known_docs": num_known_docs,
+        "unknown_doc": unknown_doc,
+        "pipeline_version": PIPELINE_VERSION,
+    }
+
+    # ========================================================
+    # Known documents
+    # ========================================================
+    for known_doc_number in range(
+        1,
+        num_known_docs + 1,
     ):
-        ngram_text = (
-            ngram_tokens_to_text(
-                ngram,
-                ngram_tokenizer,
+        known_doc = selected_known[
+            "doc_id"
+        ].iloc[
+            known_doc_number - 1
+        ]
+
+        known_text = selected_known[
+            "text"
+        ].iloc[
+            known_doc_number - 1
+        ]
+
+        rows.extend(
+            process_document_paraphrases(
+                document_type="known",
+                doc_number=known_doc_number,
+                doc_id=known_doc,
+                author=known_author,
+                text=known_text,
+                filtered_ngrams=filtered_ngrams,
+                ngram_tokenizer=ngram_tokenizer,
+                ngram_model_name=ngram_model_name,
+                t5_tokenizer=t5_tokenizer,
+                t5_model=t5_model,
+                t5_model_name=t5_model_name,
+                device=device,
+                args=args,
+                problem_metadata=problem_metadata,
             )
         )
 
-        print(
-            "=" * 80
+    # ========================================================
+    # Unknown document
+    # ========================================================
+    rows.extend(
+        process_document_paraphrases(
+            document_type="unknown",
+            doc_number=1,
+            doc_id=unknown_doc,
+            author=unknown_author,
+            text=unknown_text,
+            filtered_ngrams=filtered_ngrams,
+            ngram_tokenizer=ngram_tokenizer,
+            ngram_model_name=ngram_model_name,
+            t5_tokenizer=t5_tokenizer,
+            t5_model=t5_model,
+            t5_model_name=t5_model_name,
+            device=device,
+            args=args,
+            problem_metadata=problem_metadata,
         )
+    )
 
-        print(
-            f"N-gram "
-            f"{ngram_index}/"
-            f"{len(filtered_ngrams)} "
-            f"(length={len(ngram)}): "
-            f"{ngram_text!r}"
-        )
-
-        # This mirrors score_ngrams_to_df:
-        #   standard -> all token occurrences
-        #   greatest_common -> only independent occurrences.
-        occurrence_spans = (
-            find_ngram_occurrence_spans(
-                full_tokens=full_tokens,
-                ngram_tokens=ngram,
-                all_ngrams=filtered_ngrams,
-                greatest_common=args.greatest_common,
-                allow_overlaps=False,
-            )
-        )
-
-        if (
-            args.max_occurrences_per_ngram
-            is not None
-        ):
-            occurrence_spans = (
-                occurrence_spans[
-                    :args.max_occurrences_per_ngram
-                ]
-            )
-
-        num_occurrences = len(
-            occurrence_spans
-        )
-
-        print(
-            f"Found {num_occurrences} "
-            f"eligible occurrence(s)"
-        )
-
-        expanded_spans = (
-            create_expanded_occurrence_spans(
-                source_token_data=source_token_data,
-                occurrence_spans=occurrence_spans,
-                max_left_expansion=args.max_left_expansion,
-                max_right_expansion=args.max_right_expansion,
-            )
-        )
-
-        for span in expanded_spans:
-            local = (
-                build_local_t5_context(
-                    source_token_data=source_token_data,
-                    span=span,
-                    context_tokens=args.context_tokens,
-                    lowercase_input=args.lowercase_input,
-                )
-            )
-
-            generation_start = (
-                time.perf_counter()
-            )
-
-            candidates = (
-                generate_t5_candidates(
-                    masked_text=local[
-                        "masked_text"
-                    ],
-                    original_span=local[
-                        "generation_original_span"
-                    ],
-                    tokenizer=t5_tokenizer,
-                    model=t5_model,
-                    device=device,
-                    num_beams=args.num_beams,
-                    num_beam_groups=args.num_beam_groups,
-                    num_return_sequences=args.num_return_sequences,
-                    diversity_penalty=args.diversity_penalty,
-                    max_new_tokens=args.max_new_tokens,
-                    lowercase_output=args.lowercase_output,
-                )
-            )
-
-            generation_time_seconds = (
-                time.perf_counter()
-                - generation_start
-            )
-
-            for candidate_info in candidates:
-                reconstructed_text = (
-                    reconstruct_candidate_context(
-                        generation_left_context=local[
-                            "generation_left_context"
-                        ],
-                        generation_right_context=local[
-                            "generation_right_context"
-                        ],
-                        candidate=candidate_info[
-                            "candidate"
-                        ],
-                        starts_with_space=candidate_info[
-                            "starts_with_space"
-                        ],
-                        lowercase_output=args.lowercase_output,
-                    )
-                )
-
-                rows.append({
-                    # ----------------------------------------
-                    # Problem metadata
-                    # ----------------------------------------
-                    "data_type": args.data_type,
-                    "corpus": args.corpus,
-                    "problem": selected_problem,
-                    "known_author": known_author,
-                    "unknown_author": unknown_author,
-                    "target": target,
-                    "num_known_docs": num_known_docs,
-                    "unknown_doc": unknown_doc,
-
-                    # ----------------------------------------
-                    # Models/settings
-                    # ----------------------------------------
-                    "ngram_model": ngram_model_name,
-                    "t5_model": t5_model_name,
-
-                    "lowercase_ngrams": args.lowercase,
-                    "lowercase_input": args.lowercase_input,
-                    "lowercase_output": args.lowercase_output,
-
-                    "greatest_common": args.greatest_common,
-
-                    "context_tokens_each_side": args.context_tokens,
-                    "max_left_expansion": args.max_left_expansion,
-                    "max_right_expansion": args.max_right_expansion,
-
-                    "num_beams": args.num_beams,
-                    "num_beam_groups": args.num_beam_groups,
-                    "num_return_sequences": args.num_return_sequences,
-                    "diversity_penalty": args.diversity_penalty,
-                    "max_new_tokens": args.max_new_tokens,
-
-                    # ----------------------------------------
-                    # Original n-gram
-                    # ----------------------------------------
-                    "ngram_index": ngram_index,
-                    "ngram_len": len(ngram),
-                    "ngram_tokens": json.dumps(
-                        list(ngram),
-                        ensure_ascii=False,
-                    ),
-                    "ngram_text": ngram_text,
-                    "num_unknown_occurrences": num_occurrences,
-
-                    # ----------------------------------------
-                    # Occurrence / expanded source span
-                    # ----------------------------------------
-                    "occurrence_index": span[
-                        "occurrence_index"
-                    ],
-
-                    "ngram_token_start": span[
-                        "ngram_token_start"
-                    ],
-                    "ngram_token_end": span[
-                        "ngram_token_end"
-                    ],
-
-                    "span_token_start": span[
-                        "span_token_start"
-                    ],
-                    "span_token_end": span[
-                        "span_token_end"
-                    ],
-
-                    "left_expansion": span[
-                        "left_expansion"
-                    ],
-                    "right_expansion": span[
-                        "right_expansion"
-                    ],
-
-                    "char_start": span[
-                        "char_start"
-                    ],
-                    "char_end": span[
-                        "char_end"
-                    ],
-
-                    "span_tokens": json.dumps(
-                        span["span_tokens"],
-                        ensure_ascii=False,
-                    ),
-
-                    "original_span": span[
-                        "original_span"
-                    ],
-
-                    # ----------------------------------------
-                    # Local T5 context
-                    # ----------------------------------------
-                    "original_context": local[
-                        "original_context"
-                    ],
-
-                    "generation_original_context": local[
-                        "generation_original_context"
-                    ],
-
-                    "masked_text": local[
-                        "masked_text"
-                    ],
-
-                    # ----------------------------------------
-                    # Candidate
-                    # ----------------------------------------
-                    "candidate_rank": candidate_info[
-                        "candidate_rank"
-                    ],
-
-                    "generation_rank": candidate_info[
-                        "generation_rank"
-                    ],
-
-                    "candidate": candidate_info[
-                        "candidate"
-                    ],
-
-                    "generation_score": candidate_info[
-                        "generation_score"
-                    ],
-
-                    "starts_with_space": candidate_info[
-                        "starts_with_space"
-                    ],
-
-                    "candidate_tokens": json.dumps(
-                        candidate_info[
-                            "candidate_tokens"
-                        ],
-                        ensure_ascii=False,
-                    ),
-
-                    "reconstructed_text": reconstructed_text,
-
-                    "generation_time_seconds": (
-                        generation_time_seconds
-                    ),
-                })
-
+    # --------------------------------------------------------
+    # Final combined dataframe
+    # --------------------------------------------------------
     results_df = pd.DataFrame(
         rows
     )
@@ -976,16 +1008,67 @@ def run_pipeline(args):
             "problem_generation_time_seconds"
         ] = problem_time_seconds
 
-        results_df[
-            "offset_text_is_casefolded"
-        ] = source_token_data[
-            "offset_text_is_casefolded"
+    if not results_df.empty:
+        first_columns = [
+            "data_type",
+            "corpus",
+            "problem",
+            "known_author",
+            "unknown_author",
+            "target",
+            "document_type",
+            "doc_number",
+            "doc_id",
+            "author",
+            "ngram_index",
+            "ngram_len",
+            "ngram_text",
+            "occurrence_index",
+            "left_expansion",
+            "right_expansion",
+            "original_span",
+            "candidate_rank",
+            "candidate",
+            "generation_score",
+            "reconstructed_text",
+        ]
+
+        first_columns = [
+            col
+            for col in first_columns
+            if col in results_df.columns
+        ]
+
+        results_df = results_df[
+            first_columns
+            + [
+                col
+                for col in results_df.columns
+                if col not in first_columns
+            ]
         ]
 
     print(
         f"Generated {len(results_df)} "
         f"candidate rows"
     )
+
+    if not results_df.empty:
+        type_counts = (
+            results_df["document_type"]
+            .value_counts()
+            .to_dict()
+        )
+
+        print(
+            f"Known candidate rows: "
+            f"{type_counts.get('known', 0)}"
+        )
+
+        print(
+            f"Unknown candidate rows: "
+            f"{type_counts.get('unknown', 0)}"
+        )
 
     print(
         f"Generation time: "
