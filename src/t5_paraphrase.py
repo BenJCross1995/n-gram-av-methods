@@ -247,7 +247,6 @@ def generate_t5_candidates(
 
     generation_kwargs = {
         "do_sample": False,
-        "trust_remote_code": True,
         "num_beams": num_beams,
         "num_return_sequences": num_return_sequences,
         "bad_words_ids": bad_words_ids,
@@ -268,6 +267,7 @@ def generate_t5_candidates(
     outputs = model.generate(
         **inputs,
         **generation_kwargs,
+        trust_remote_code=True
     )
 
     sequence_scores = getattr(
