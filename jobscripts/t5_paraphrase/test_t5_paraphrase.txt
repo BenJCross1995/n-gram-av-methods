@@ -36,7 +36,7 @@ CORPUS="Wiki"
 MODEL="gpt2"
 
 # Model used to generate paraphrase candidates
-T5_MODEL="t5-large"
+T5_MODEL="t5-small"
 
 # ============================================================
 # Experiment
