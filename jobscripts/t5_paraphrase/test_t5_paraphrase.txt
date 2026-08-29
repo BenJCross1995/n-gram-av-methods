@@ -1,0 +1,290 @@
+#!/bin/bash --login
+
+#SBATCH -J test_t5_paraphrase
+#SBATCH -p himem
+#SBATCH -t 1-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -euo pipefail
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# ============================================================
+# Central paths
+# ============================================================
+
+PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+SCRIPT_ROOT="${PROJECT_ROOT}/scripts"
+
+DATA_ROOT="/mnt/hum01-home01/d34195bc/av_datasets"
+MODEL_ROOT="/mnt/hum01-home01/d34195bc/models"
+EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
+
+# ============================================================
+# Fixed test dataset
+# ============================================================
+
+DATA_TYPE="test"
+CORPUS="Wiki"
+
+# Model/tokenizer used to define the common n-grams
+MODEL="gpt2"
+
+# Model used to generate paraphrase candidates
+T5_MODEL="t5-large"
+
+# ============================================================
+# Experiment
+# ============================================================
+
+EXPERIMENT_NAME="t5_paraphrase"
+
+# Keep test output separate from real experiment output
+SAVE_SUBDIR="test_raw"
+COMPLETED_SUBDIR="test_raw"
+ERROR_SUBDIR="test_errors"
+
+# ============================================================
+# Problem list
+# ============================================================
+
+TEST_PROBLEM_LIST="${PROJECT_ROOT}/jobscripts/t5_paraphrase/test_problems.txt"
+
+if [[ ! -f "${TEST_PROBLEM_LIST}" ]]; then
+    echo "ERROR: Test problem list does not exist:"
+    echo "  ${TEST_PROBLEM_LIST}"
+    exit 1
+fi
+
+# ============================================================
+# Input paths
+# ============================================================
+
+KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
+UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
+
+MODEL_LOC="${MODEL_ROOT}/${MODEL}"
+T5_MODEL_LOC="${MODEL_ROOT}/${T5_MODEL}"
+
+# ============================================================
+# Output paths
+# ============================================================
+
+BASE_SAVE_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${T5_MODEL}"
+
+SAVE_LOC="${BASE_SAVE_LOC}/${SAVE_SUBDIR}"
+COMPLETED_LOC="${BASE_SAVE_LOC}/${COMPLETED_SUBDIR}"
+ERROR_LOC="${BASE_SAVE_LOC}/${ERROR_SUBDIR}"
+
+mkdir -p \
+    "${SAVE_LOC}" \
+    "${COMPLETED_LOC}" \
+    "${ERROR_LOC}"
+
+# ============================================================
+# Python script
+# ============================================================
+
+PARAPHRASE_SCRIPT="${SCRIPT_ROOT}/generate_t5_paraphrases.py"
+
+if [[ ! -f "${PARAPHRASE_SCRIPT}" ]]; then
+    echo "ERROR: Python script does not exist:"
+    echo "  ${PARAPHRASE_SCRIPT}"
+    exit 1
+fi
+
+# ============================================================
+# N-gram settings
+# ============================================================
+
+MIN_LEN=3
+
+GREATEST_COMMON=true
+
+LOWERCASE=true
+LOWERCASE_INPUT=true
+LOWERCASE_OUTPUT=true
+
+# ============================================================
+# Span settings
+# ============================================================
+
+MAX_LEFT_EXPANSION=2
+MAX_RIGHT_EXPANSION=2
+
+# Number of original GPT-2 tokens retained on EACH side
+CONTEXT_TOKENS=128
+
+# ============================================================
+# T5 generation settings
+# ============================================================
+
+NUM_BEAMS=40
+NUM_BEAM_GROUPS=10
+NUM_RETURN_SEQUENCES=20
+DIVERSITY_PENALTY=0.5
+MAX_NEW_TOKENS=20
+
+# ============================================================
+# IMPORTANT: smoke-test limits
+# ============================================================
+#
+# We only want to verify that:
+#
+#   problem loading
+#       ↓
+#   common n-grams
+#       ↓
+#   occurrence finding
+#       ↓
+#   span expansion
+#       ↓
+#   T5 generation
+#       ↓
+#   RDS saving
+#
+# all work correctly.
+#
+# Remove these limits later for a full problem.
+# ============================================================
+
+MAX_NGRAMS=5
+MAX_OCCURRENCES_PER_NGRAM=2
+
+# ============================================================
+# Show settings
+# ============================================================
+
+echo "============================================================"
+echo "T5 PARAPHRASE TEST"
+echo "============================================================"
+echo "DATA_TYPE                 : ${DATA_TYPE}"
+echo "CORPUS                    : ${CORPUS}"
+echo "MODEL                     : ${MODEL}"
+echo "T5_MODEL                  : ${T5_MODEL}"
+echo "TEST_PROBLEM_LIST         : ${TEST_PROBLEM_LIST}"
+echo
+echo "SAVE_LOC                  : ${SAVE_LOC}"
+echo "ERROR_LOC                 : ${ERROR_LOC}"
+echo
+echo "MIN_LEN                   : ${MIN_LEN}"
+echo "GREATEST_COMMON           : ${GREATEST_COMMON}"
+echo
+echo "MAX_LEFT_EXPANSION        : ${MAX_LEFT_EXPANSION}"
+echo "MAX_RIGHT_EXPANSION       : ${MAX_RIGHT_EXPANSION}"
+echo "CONTEXT_TOKENS            : ${CONTEXT_TOKENS}"
+echo
+echo "NUM_BEAMS                 : ${NUM_BEAMS}"
+echo "NUM_BEAM_GROUPS           : ${NUM_BEAM_GROUPS}"
+echo "NUM_RETURN_SEQUENCES      : ${NUM_RETURN_SEQUENCES}"
+echo
+echo "MAX_NGRAMS                : ${MAX_NGRAMS}"
+echo "MAX_OCCURRENCES_PER_NGRAM : ${MAX_OCCURRENCES_PER_NGRAM}"
+echo "============================================================"
+
+# ============================================================
+# Loop over test problems
+# ============================================================
+
+while IFS= read -r PROBLEM || [[ -n "${PROBLEM}" ]]; do
+
+    # Skip empty lines
+    if [[ -z "${PROBLEM//[[:space:]]/}" ]]; then
+        continue
+    fi
+
+    echo
+    echo "############################################################"
+    echo "Working on test problem:"
+    echo "  ${PROBLEM}"
+    echo "############################################################"
+    echo
+
+    COMMON_ARGS=(
+        --known_loc "${KNOWN_LOC}"
+        --unknown_loc "${UNKNOWN_LOC}"
+        --metadata_loc "${METADATA_LOC}"
+        --model_loc "${MODEL_LOC}"
+        --t5_model_loc "${T5_MODEL_LOC}"
+        --save_loc "${SAVE_LOC}"
+        --completed_loc "${COMPLETED_LOC}"
+        --error_loc "${ERROR_LOC}"
+        --corpus "${CORPUS}"
+        --data_type "${DATA_TYPE}"
+        --problem "${PROBLEM}"
+        --min_len "${MIN_LEN}"
+        --max_left_expansion "${MAX_LEFT_EXPANSION}"
+        --max_right_expansion "${MAX_RIGHT_EXPANSION}"
+        --context_tokens "${CONTEXT_TOKENS}"
+        --num_beams "${NUM_BEAMS}"
+        --num_beam_groups "${NUM_BEAM_GROUPS}"
+        --num_return_sequences "${NUM_RETURN_SEQUENCES}"
+        --diversity_penalty "${DIVERSITY_PENALTY}"
+        --max_new_tokens "${MAX_NEW_TOKENS}"
+        --max_ngrams "${MAX_NGRAMS}"
+        --max_occurrences_per_ngram "${MAX_OCCURRENCES_PER_NGRAM}"
+    )
+
+    # Greatest-common occurrence-aware n-grams
+    if [[ "${GREATEST_COMMON}" == "true" ]]; then
+        COMMON_ARGS+=(
+            --greatest_common
+        )
+    fi
+
+    # Common n-gram lowercasing
+    if [[ "${LOWERCASE}" == "true" ]]; then
+        COMMON_ARGS+=(
+            --lowercase
+        )
+    else
+        COMMON_ARGS+=(
+            --no-lowercase
+        )
+    fi
+
+    # T5 input lowercasing
+    if [[ "${LOWERCASE_INPUT}" == "true" ]]; then
+        COMMON_ARGS+=(
+            --lowercase-input
+        )
+    else
+        COMMON_ARGS+=(
+            --no-lowercase-input
+        )
+    fi
+
+    # T5 output lowercasing
+    if [[ "${LOWERCASE_OUTPUT}" == "true" ]]; then
+        COMMON_ARGS+=(
+            --lowercase-output
+        )
+    else
+        COMMON_ARGS+=(
+            --no-lowercase-output
+        )
+    fi
+
+    # ========================================================
+    # Run
+    # ========================================================
+
+    python -u "${PARAPHRASE_SCRIPT}" \
+        "${COMMON_ARGS[@]}"
+
+    echo
+    echo "Finished problem:"
+    echo "  ${PROBLEM}"
+    echo
+
+done < "${TEST_PROBLEM_LIST}"
+
+echo "============================================================"
+echo "All T5 paraphrase test problems finished successfully."
+echo "============================================================"

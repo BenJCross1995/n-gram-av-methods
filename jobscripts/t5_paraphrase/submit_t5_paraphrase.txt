@@ -1,0 +1,283 @@
+#!/bin/bash --login
+
+#SBATCH -J submit_t5_paraphrase
+#SBATCH -p himem
+#SBATCH -t 7-0
+#SBATCH -n 1
+#SBATCH --mem=64G
+
+set -euo pipefail
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# ============================================================
+# Central shared settings
+# ============================================================
+
+PROJECT_ROOT="/mnt/hum01-home01/d34195bc/projects/n-gram-av-methods"
+SCRIPT_ROOT="${PROJECT_ROOT}/scripts"
+
+DATA_ROOT="/mnt/hum01-home01/d34195bc/av_datasets"
+MODEL_ROOT="/mnt/hum01-home01/d34195bc/models"
+EXPERIMENT_ROOT="/mnt/hum01-home01/d34195bc/av_datasets_experiments"
+
+# Generic array jobscript that actually does the work
+JOB_SCRIPT="${PROJECT_ROOT}/jobscripts/t5_paraphrase/run_t5_paraphrase.txt"
+
+# Experiment naming
+EXPERIMENT_NAME="t5_paraphrase"
+SAVE_SUBDIR="raw"
+COMPLETED_SUBDIR="raw"
+ERROR_SUBDIR="errors"
+
+# Problem list file name to look for
+PROBLEM_LIST_NAME="agg_problem_list.txt"
+
+# Python script
+PARAPHRASE_SCRIPT="generate_t5_paraphrases.py"
+
+# ============================================================
+# Paraphrase settings
+# ============================================================
+
+MIN_LEN=3
+MAX_LEN=""
+
+GREATEST_COMMON=true
+
+LOWERCASE=true
+LOWERCASE_INPUT=true
+LOWERCASE_OUTPUT=true
+
+MAX_LEFT_EXPANSION=2
+MAX_RIGHT_EXPANSION=2
+CONTEXT_TOKENS=128
+
+NUM_BEAMS=40
+NUM_BEAM_GROUPS=10
+NUM_RETURN_SEQUENCES=20
+DIVERSITY_PENALTY=0.5
+MAX_NEW_TOKENS=20
+
+# Optional smoke-test limits.
+# Leave blank to process the full problem.
+MAX_NGRAMS=""
+MAX_OCCURRENCES_PER_NGRAM=""
+
+# Logs
+# Files saved as:
+# ${LOG_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${T5_MODEL}/
+# <job_name>_<array_job_id>_<array_task_id>.{out,err}
+#
+# Example:
+# /mnt/hum01-home01/d34195bc/slurm_logs/t5_paraphrase/test/Wiki/gpt2/t5-large/te_wiki_gpt2_t5l_123456_7.out
+LOG_ROOT="/mnt/hum01-home01/d34195bc/slurm_logs"
+mkdir -p "${LOG_ROOT}"
+
+# Whether to chain each submitted job after the last one
+CHAIN_JOBS=false
+
+# Shared SLURM settings for child jobs
+CHILD_PARTITION="himem"
+CHILD_TIME="7-0"
+CHILD_NTASKS="1"
+CHILD_MEM="64G"
+
+# ============================================================
+# Lists to edit
+# ============================================================
+
+# Model/tokenizer used to define the common token n-grams
+MODEL_LIST=(
+    "gpt2"
+)
+
+# T5 model used to generate paraphrase candidates
+T5_MODEL_LIST=(
+    "t5-large"
+)
+
+# Removed Reddit and The Telegraph since not in paper
+CORPORA=(
+    "ACL"
+    "All-the-news"
+)
+
+DATA_TYPES=(
+    "test"
+    "training"
+)
+
+# ============================================================
+# Helpers
+# ============================================================
+
+short_corpus() {
+    # Short codes for each corpus to keep job names compact
+    case "$1" in
+        "ACL")               echo "acl" ;;
+        "All-the-news")      echo "news" ;;
+        "Amazon")            echo "amzn" ;;
+        "Enron Cleaned")     echo "enron" ;;
+        "IMDB")              echo "imdb" ;;
+        "Koppel's Blogs")    echo "blogs" ;;
+        "Perverted Justice") echo "pj" ;;
+        "Reddit")            echo "reddit" ;;
+        "StackExchange")     echo "stack" ;;
+        "The Apricity")      echo "apric" ;;
+        "The Telegraph")     echo "tele" ;;
+        "TripAdvisor")       echo "trip" ;;
+        "Wiki")              echo "wiki" ;;
+        "Yelp")              echo "yelp" ;;
+        *)                   echo "$1" | tr '[:upper:] ' '[:lower:]_' ;;
+    esac
+}
+
+short_data_type() {
+    case "$1" in
+        "training") echo "tr" ;;
+        "test")     echo "te" ;;
+        *)          echo "$1" ;;
+    esac
+}
+
+short_t5_model() {
+    case "$1" in
+        "t5-small") echo "t5s" ;;
+        "t5-base")  echo "t5b" ;;
+        "t5-large") echo "t5l" ;;
+        *)          echo "$1" | tr '[:upper:] /' '[:lower:]__' ;;
+    esac
+}
+
+count_nonempty_lines() {
+    local file="$1"
+    awk 'NF {c++} END {print c+0}' "$file"
+}
+
+# ============================================================
+# Submit loop
+# ============================================================
+
+PREV_JOB_ID=""
+
+for MODEL in "${MODEL_LIST[@]}"; do
+    for T5_MODEL in "${T5_MODEL_LIST[@]}"; do
+        for DATA_TYPE in "${DATA_TYPES[@]}"; do
+            for CORPUS in "${CORPORA[@]}"; do
+
+                PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
+
+                if [[ ! -f "${PROBLEM_LIST}" ]]; then
+                    echo "Skipping missing problem list:"
+                    echo "  ${PROBLEM_LIST}"
+                    echo
+                    continue
+                fi
+
+                NUM_TASKS="$(count_nonempty_lines "${PROBLEM_LIST}")"
+
+                if [[ "${NUM_TASKS}" -eq 0 ]]; then
+                    echo "Skipping empty problem list:"
+                    echo "  ${PROBLEM_LIST}"
+                    echo
+                    continue
+                fi
+
+                # Compact job name:
+                # <data_type>_<corpus>_<ngram_model>_<t5_model>
+                #
+                # e.g. tr_wiki_gpt2_t5l, te_enron_gpt2_t5l
+                JOB_NAME="$(short_data_type "${DATA_TYPE}")_$(short_corpus "${CORPUS}")_${MODEL}_$(short_t5_model "${T5_MODEL}")"
+
+                # Logs are stored under:
+                # ${LOG_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${T5_MODEL}
+                JOB_LOG_DIR="${LOG_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${T5_MODEL}"
+                mkdir -p "${JOB_LOG_DIR}"
+
+                echo "------------------------------------------------------------"
+                echo "Submitting:"
+                echo "  EXPERIMENT                = ${EXPERIMENT_NAME}"
+                echo "  CORPUS                    = ${CORPUS}"
+                echo "  DATA_TYPE                 = ${DATA_TYPE}"
+                echo "  MODEL                     = ${MODEL}"
+                echo "  T5_MODEL                  = ${T5_MODEL}"
+                echo "  PROBLEM_LIST              = ${PROBLEM_LIST}"
+                echo "  NUM_TASKS                 = ${NUM_TASKS}"
+                echo "  JOB_NAME                  = ${JOB_NAME}"
+                echo "  LOG_DIR                   = ${JOB_LOG_DIR}"
+                echo "  MIN_LEN                   = ${MIN_LEN}"
+                echo "  MAX_LEFT_EXPANSION        = ${MAX_LEFT_EXPANSION}"
+                echo "  MAX_RIGHT_EXPANSION       = ${MAX_RIGHT_EXPANSION}"
+                echo "  CONTEXT_TOKENS            = ${CONTEXT_TOKENS}"
+                echo "  NUM_RETURN_SEQUENCES      = ${NUM_RETURN_SEQUENCES}"
+
+                SBATCH_ARGS=(
+                    --parsable
+                    --job-name "${JOB_NAME}"
+                    --array "1-${NUM_TASKS}"
+                    -p "${CHILD_PARTITION}"
+                    -t "${CHILD_TIME}"
+                    -n "${CHILD_NTASKS}"
+                    --mem "${CHILD_MEM}"
+                    -o "${JOB_LOG_DIR}/%x_%A_%a.out"
+                    -e "${JOB_LOG_DIR}/%x_%A_%a.err"
+                )
+
+                if [[ "${CHAIN_JOBS}" == "true" && -n "${PREV_JOB_ID}" ]]; then
+                    SBATCH_ARGS+=(--dependency="afterok:${PREV_JOB_ID}")
+                    echo "  DEPENDS ON               = ${PREV_JOB_ID}"
+                fi
+
+                JOB_ID="$(
+                    CORPUS="${CORPUS}" \
+                    DATA_TYPE="${DATA_TYPE}" \
+                    MODEL="${MODEL}" \
+                    T5_MODEL="${T5_MODEL}" \
+                    PROJECT_ROOT="${PROJECT_ROOT}" \
+                    SCRIPT_ROOT="${SCRIPT_ROOT}" \
+                    DATA_ROOT="${DATA_ROOT}" \
+                    MODEL_ROOT="${MODEL_ROOT}" \
+                    EXPERIMENT_ROOT="${EXPERIMENT_ROOT}" \
+                    EXPERIMENT_NAME="${EXPERIMENT_NAME}" \
+                    SAVE_SUBDIR="${SAVE_SUBDIR}" \
+                    COMPLETED_SUBDIR="${COMPLETED_SUBDIR}" \
+                    ERROR_SUBDIR="${ERROR_SUBDIR}" \
+                    PROBLEM_LIST_NAME="${PROBLEM_LIST_NAME}" \
+                    PARAPHRASE_SCRIPT="${PARAPHRASE_SCRIPT}" \
+                    MIN_LEN="${MIN_LEN}" \
+                    MAX_LEN="${MAX_LEN}" \
+                    GREATEST_COMMON="${GREATEST_COMMON}" \
+                    LOWERCASE="${LOWERCASE}" \
+                    LOWERCASE_INPUT="${LOWERCASE_INPUT}" \
+                    LOWERCASE_OUTPUT="${LOWERCASE_OUTPUT}" \
+                    MAX_LEFT_EXPANSION="${MAX_LEFT_EXPANSION}" \
+                    MAX_RIGHT_EXPANSION="${MAX_RIGHT_EXPANSION}" \
+                    CONTEXT_TOKENS="${CONTEXT_TOKENS}" \
+                    NUM_BEAMS="${NUM_BEAMS}" \
+                    NUM_BEAM_GROUPS="${NUM_BEAM_GROUPS}" \
+                    NUM_RETURN_SEQUENCES="${NUM_RETURN_SEQUENCES}" \
+                    DIVERSITY_PENALTY="${DIVERSITY_PENALTY}" \
+                    MAX_NEW_TOKENS="${MAX_NEW_TOKENS}" \
+                    MAX_NGRAMS="${MAX_NGRAMS}" \
+                    MAX_OCCURRENCES_PER_NGRAM="${MAX_OCCURRENCES_PER_NGRAM}" \
+                    sbatch "${SBATCH_ARGS[@]}" "${JOB_SCRIPT}"
+                )"
+
+                echo "  SUBMITTED ID              = ${JOB_ID}"
+                echo
+
+                if [[ "${CHAIN_JOBS}" == "true" ]]; then
+                    PREV_JOB_ID="${JOB_ID}"
+                fi
+
+            done
+        done
+    done
+done
+
+echo "All submissions complete."

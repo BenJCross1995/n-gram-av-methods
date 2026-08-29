@@ -1,0 +1,219 @@
+#!/bin/bash --login
+
+#SBATCH -n 1
+
+set -euo pipefail
+
+# Load conda module
+module load apps/binapps/anaconda3/2024.10
+
+# Activate the environment
+conda activate venv
+
+# ============================================================
+# Required vars passed in from master submitter
+# ============================================================
+
+: "${CORPUS:?Missing CORPUS}"
+: "${DATA_TYPE:?Missing DATA_TYPE}"
+: "${MODEL:?Missing MODEL}"
+: "${T5_MODEL:?Missing T5_MODEL}"
+
+: "${PROJECT_ROOT:?Missing PROJECT_ROOT}"
+: "${SCRIPT_ROOT:?Missing SCRIPT_ROOT}"
+: "${DATA_ROOT:?Missing DATA_ROOT}"
+: "${MODEL_ROOT:?Missing MODEL_ROOT}"
+: "${EXPERIMENT_ROOT:?Missing EXPERIMENT_ROOT}"
+
+: "${EXPERIMENT_NAME:?Missing EXPERIMENT_NAME}"
+: "${SAVE_SUBDIR:?Missing SAVE_SUBDIR}"
+: "${COMPLETED_SUBDIR:?Missing COMPLETED_SUBDIR}"
+: "${ERROR_SUBDIR:?Missing ERROR_SUBDIR}"
+: "${PROBLEM_LIST_NAME:?Missing PROBLEM_LIST_NAME}"
+
+: "${PARAPHRASE_SCRIPT:?Missing PARAPHRASE_SCRIPT}"
+
+: "${MIN_LEN:?Missing MIN_LEN}"
+: "${GREATEST_COMMON:?Missing GREATEST_COMMON}"
+
+: "${LOWERCASE:?Missing LOWERCASE}"
+: "${LOWERCASE_INPUT:?Missing LOWERCASE_INPUT}"
+: "${LOWERCASE_OUTPUT:?Missing LOWERCASE_OUTPUT}"
+
+: "${MAX_LEFT_EXPANSION:?Missing MAX_LEFT_EXPANSION}"
+: "${MAX_RIGHT_EXPANSION:?Missing MAX_RIGHT_EXPANSION}"
+: "${CONTEXT_TOKENS:?Missing CONTEXT_TOKENS}"
+
+: "${NUM_BEAMS:?Missing NUM_BEAMS}"
+: "${NUM_BEAM_GROUPS:?Missing NUM_BEAM_GROUPS}"
+: "${NUM_RETURN_SEQUENCES:?Missing NUM_RETURN_SEQUENCES}"
+: "${DIVERSITY_PENALTY:?Missing DIVERSITY_PENALTY}"
+: "${MAX_NEW_TOKENS:?Missing MAX_NEW_TOKENS}"
+
+# ============================================================
+# Build paths
+# ============================================================
+
+PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
+
+KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
+UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
+
+MODEL_LOC="${MODEL_ROOT}/${MODEL}"
+T5_MODEL_LOC="${MODEL_ROOT}/${T5_MODEL}"
+
+SAVE_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${T5_MODEL}/${SAVE_SUBDIR}"
+
+COMPLETED_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${T5_MODEL}/${COMPLETED_SUBDIR}"
+
+ERROR_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${T5_MODEL}/${ERROR_SUBDIR}"
+
+mkdir -p \
+    "${SAVE_LOC}" \
+    "${COMPLETED_LOC}" \
+    "${ERROR_LOC}"
+
+# ============================================================
+# Get problem for this array task
+# Count only non-empty lines
+# ============================================================
+
+PROBLEM="$(
+    awk -v n="$SLURM_ARRAY_TASK_ID" '
+        NF {c++}
+        c==n {print; exit}
+    ' "${PROBLEM_LIST}"
+)"
+
+if [[ -z "${PROBLEM:-}" ]]; then
+    echo "ERROR: No problem found for array task ${SLURM_ARRAY_TASK_ID}"
+    echo "Problem list: ${PROBLEM_LIST}"
+    exit 1
+fi
+
+echo "============================================================"
+echo "CORPUS                    : ${CORPUS}"
+echo "DATA_TYPE                 : ${DATA_TYPE}"
+echo "MODEL                     : ${MODEL}"
+echo "T5_MODEL                  : ${T5_MODEL}"
+echo "TASK_ID                   : ${SLURM_ARRAY_TASK_ID}"
+echo "PROBLEM                   : ${PROBLEM}"
+echo "PROBLEM_LIST              : ${PROBLEM_LIST}"
+echo "SAVE_LOC                  : ${SAVE_LOC}"
+echo "COMPLETED_LOC             : ${COMPLETED_LOC}"
+echo "ERROR_LOC                 : ${ERROR_LOC}"
+echo "MIN_LEN                   : ${MIN_LEN}"
+echo "MAX_LEN                   : ${MAX_LEN:-}"
+echo "GREATEST_COMMON           : ${GREATEST_COMMON}"
+echo "LOWERCASE                 : ${LOWERCASE}"
+echo "LOWERCASE_INPUT           : ${LOWERCASE_INPUT}"
+echo "LOWERCASE_OUTPUT          : ${LOWERCASE_OUTPUT}"
+echo "MAX_LEFT_EXPANSION        : ${MAX_LEFT_EXPANSION}"
+echo "MAX_RIGHT_EXPANSION       : ${MAX_RIGHT_EXPANSION}"
+echo "CONTEXT_TOKENS            : ${CONTEXT_TOKENS}"
+echo "NUM_BEAMS                 : ${NUM_BEAMS}"
+echo "NUM_BEAM_GROUPS           : ${NUM_BEAM_GROUPS}"
+echo "NUM_RETURN_SEQUENCES      : ${NUM_RETURN_SEQUENCES}"
+echo "DIVERSITY_PENALTY         : ${DIVERSITY_PENALTY}"
+echo "MAX_NEW_TOKENS            : ${MAX_NEW_TOKENS}"
+echo "MAX_NGRAMS                : ${MAX_NGRAMS:-}"
+echo "MAX_OCCURRENCES_PER_NGRAM : ${MAX_OCCURRENCES_PER_NGRAM:-}"
+echo "============================================================"
+
+# ============================================================
+# Shared args
+# ============================================================
+
+COMMON_ARGS=(
+    --known_loc "${KNOWN_LOC}"
+    --unknown_loc "${UNKNOWN_LOC}"
+    --metadata_loc "${METADATA_LOC}"
+    --model_loc "${MODEL_LOC}"
+    --t5_model_loc "${T5_MODEL_LOC}"
+    --save_loc "${SAVE_LOC}"
+    --completed_loc "${COMPLETED_LOC}"
+    --error_loc "${ERROR_LOC}"
+    --corpus "${CORPUS}"
+    --data_type "${DATA_TYPE}"
+    --problem "${PROBLEM}"
+    --min_len "${MIN_LEN}"
+    --max_left_expansion "${MAX_LEFT_EXPANSION}"
+    --max_right_expansion "${MAX_RIGHT_EXPANSION}"
+    --context_tokens "${CONTEXT_TOKENS}"
+    --num_beams "${NUM_BEAMS}"
+    --num_beam_groups "${NUM_BEAM_GROUPS}"
+    --num_return_sequences "${NUM_RETURN_SEQUENCES}"
+    --diversity_penalty "${DIVERSITY_PENALTY}"
+    --max_new_tokens "${MAX_NEW_TOKENS}"
+)
+
+# Optional maximum n-gram length
+if [[ -n "${MAX_LEN:-}" ]]; then
+    COMMON_ARGS+=(
+        --max_len "${MAX_LEN}"
+    )
+fi
+
+# Optional smoke-test limit on n-grams
+if [[ -n "${MAX_NGRAMS:-}" ]]; then
+    COMMON_ARGS+=(
+        --max_ngrams "${MAX_NGRAMS}"
+    )
+fi
+
+# Optional smoke-test limit on occurrences per n-gram
+if [[ -n "${MAX_OCCURRENCES_PER_NGRAM:-}" ]]; then
+    COMMON_ARGS+=(
+        --max_occurrences_per_ngram "${MAX_OCCURRENCES_PER_NGRAM}"
+    )
+fi
+
+# Greatest-common occurrence handling
+if [[ "${GREATEST_COMMON}" == "true" ]]; then
+    COMMON_ARGS+=(
+        --greatest_common
+    )
+fi
+
+# Common n-gram lowercasing
+if [[ "${LOWERCASE}" == "true" ]]; then
+    COMMON_ARGS+=(
+        --lowercase
+    )
+else
+    COMMON_ARGS+=(
+        --no-lowercase
+    )
+fi
+
+# T5 input lowercasing
+if [[ "${LOWERCASE_INPUT}" == "true" ]]; then
+    COMMON_ARGS+=(
+        --lowercase-input
+    )
+else
+    COMMON_ARGS+=(
+        --no-lowercase-input
+    )
+fi
+
+# T5 output lowercasing
+if [[ "${LOWERCASE_OUTPUT}" == "true" ]]; then
+    COMMON_ARGS+=(
+        --lowercase-output
+    )
+else
+    COMMON_ARGS+=(
+        --no-lowercase-output
+    )
+fi
+
+# ============================================================
+# Generate T5 paraphrase candidates
+# ============================================================
+
+python -u "${SCRIPT_ROOT}/${PARAPHRASE_SCRIPT}" \
+    "${COMMON_ARGS[@]}"
+
+echo "Finished successfully."
