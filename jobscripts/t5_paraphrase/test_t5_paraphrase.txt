@@ -45,9 +45,9 @@ T5_MODEL="t5-small"
 EXPERIMENT_NAME="t5_paraphrase"
 
 # Keep test output separate from real experiment output
-SAVE_SUBDIR="test_raw"
-COMPLETED_SUBDIR="test_raw"
-ERROR_SUBDIR="test_errors"
+SAVE_SUBDIR="test_raw_kvu"
+COMPLETED_SUBDIR="test_raw_kvu"
+ERROR_SUBDIR="test_errors_kvu"
 
 # ============================================================
 # Problem list
