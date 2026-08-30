@@ -146,10 +146,13 @@ T5_MODEL_LIST=(
 # Removed Reddit and The Telegraph since not in paper
 CORPORA=(
     "Wiki"
+    "ACL"
+    "StackExchange"
 )
 
 DATA_TYPES=(
     "test"
+    "training"
 )
 
 # ============================================================
