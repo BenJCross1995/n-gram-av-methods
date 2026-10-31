@@ -1,5 +1,6 @@
 import re
 import platform
+import unicodedata
 import pandas as pd
 
 from pathlib import Path
@@ -18,53 +19,181 @@ def get_base_location():
     elif system == "darwin":  # macOS reports as 'Darwin'
         base_loc = "/Volumes/BCross"
     elif system == "linux":
-        base_loc = "/home/your_linux_path"
+        base_loc = "/mnt/BCross"
     else:
         raise ValueError(f"Unsupported operating system: {system}")
 
     return base_loc
 
 def create_temp_doc_id(input_text):
-    """Create a new doc id by preprocessing the current id.
-    If [...] exists, use what's inside; otherwise use the full string.
     """
-    if input_text is None or (isinstance(input_text, float) and pd.isna(input_text)):
+    Create a new doc id by preprocessing the current id.
+
+    If [...] exists, use what's inside; otherwise use the full string.
+
+    Unicode is normalised to NFC so accented characters have a
+    consistent representation.
+    """
+
+    if input_text is None or (
+        isinstance(input_text, float)
+        and pd.isna(input_text)
+    ):
         return None
 
-    s = str(input_text)
+    # --------------------------------------------------------
+    # Convert to string and normalise Unicode
+    # --------------------------------------------------------
 
-    match = re.search(r'\[(.*?)\]', s)
-    extracted_text = match.group(1) if match else s  # <-- fallback to full string
+    s = unicodedata.normalize(
+        "NFC",
+        str(input_text)
+    )
 
-    cleaned_text = re.sub(r'[^\w]+', '_', extracted_text.strip())
-    cleaned_text = re.sub(r'_{2,}', '_', cleaned_text)
-    cleaned_text = re.sub(r'^_+|_+$', '', cleaned_text)  # trim edge underscores
+    # --------------------------------------------------------
+    # Extract text inside square brackets if present
+    # --------------------------------------------------------
 
-    return cleaned_text.lower() if cleaned_text else None
+    match = re.search(
+        r'\[(.*?)\]',
+        s
+    )
+
+    extracted_text = (
+        match.group(1)
+        if match
+        else s
+    )
+
+    # --------------------------------------------------------
+    # Clean document ID
+    # --------------------------------------------------------
+
+    cleaned_text = re.sub(
+        r'[^\w]+',
+        '_',
+        extracted_text.strip()
+    )
+
+    cleaned_text = re.sub(
+        r'_{2,}',
+        '_',
+        cleaned_text
+    )
+
+    cleaned_text = re.sub(
+        r'^_+|_+$',
+        '',
+        cleaned_text
+    )
+
+    # --------------------------------------------------------
+    # Normalise final ID as well
+    # --------------------------------------------------------
+
+    cleaned_text = unicodedata.normalize(
+        "NFC",
+        cleaned_text
+    )
+
+    return (
+        cleaned_text.lower()
+        if cleaned_text
+        else None
+    )
+
 
 def apply_temp_doc_id(df):
-    """Apply the doc id function on the dataframe safely."""
+    """
+    Apply the temporary doc ID function to the dataframe safely.
+    """
+
     df = df.copy()
 
-    # If both already exist, do nothing
-    if 'doc_id' in df.columns and 'orig_doc_id' in df.columns:
+    # --------------------------------------------------------
+    # If both already exist, normalise the existing doc_id
+    # --------------------------------------------------------
+
+    if (
+        'doc_id' in df.columns
+        and 'orig_doc_id' in df.columns
+    ):
+
+        df['doc_id'] = (
+            df['doc_id']
+            .apply(
+                lambda x:
+                unicodedata.normalize("NFC", str(x))
+                if pd.notna(x)
+                else None
+            )
+        )
+
         return df
 
-    # Determine source column for the original id
+    # --------------------------------------------------------
+    # Determine source column for original ID
+    # --------------------------------------------------------
+
     if 'orig_doc_id' in df.columns:
+
         src = 'orig_doc_id'
+
     elif 'doc_id' in df.columns:
-        df = df.rename(columns={'doc_id': 'orig_doc_id'})
+
+        df = df.rename(
+            columns={
+                'doc_id': 'orig_doc_id'
+            }
+        )
+
         src = 'orig_doc_id'
+
     else:
-        raise KeyError("Expected a 'doc_id' or 'orig_doc_id' column in df.")
 
-    df['doc_id'] = df[src].apply(create_temp_doc_id)
+        raise KeyError(
+            "Expected a 'doc_id' or 'orig_doc_id' column in df."
+        )
 
-    # Reorder columns (only if 'text' exists)
-    front = ['doc_id', 'orig_doc_id'] if 'orig_doc_id' in df.columns else ['doc_id', src]
-    rest = [c for c in df.columns if c not in set(front + (['text'] if 'text' in df.columns else []))]
-    cols = front + rest + (['text'] if 'text' in df.columns else [])
+    # --------------------------------------------------------
+    # Create temporary document ID
+    # --------------------------------------------------------
+
+    df['doc_id'] = (
+        df[src]
+        .apply(create_temp_doc_id)
+    )
+
+    # --------------------------------------------------------
+    # Reorder columns
+    # --------------------------------------------------------
+
+    front = (
+        ['doc_id', 'orig_doc_id']
+        if 'orig_doc_id' in df.columns
+        else ['doc_id', src]
+    )
+
+    text_cols = (
+        ['text']
+        if 'text' in df.columns
+        else []
+    )
+
+    rest = [
+        c
+        for c in df.columns
+        if c not in set(
+            front + text_cols
+        )
+    ]
+
+    cols = (
+        front
+        + rest
+        + text_cols
+    )
+
     return df[cols]
 
 def build_metadata_df(filtered_metadata: pd.DataFrame,
