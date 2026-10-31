@@ -134,3 +134,129 @@ def read_excel_sheets(
         name: pd.read_excel(xls, sheet_name=name)
         for name in sheet_names
     }
+    
+def load_problem_texts(
+    problem_type: str,
+    data_loc: str = "../data",
+) -> dict:
+    """
+    Load all reference and comparison texts for a problem.
+
+    The expected directory structure is:
+
+        data_loc/
+        └── problem_type/
+            ├── reference/
+            │   ├── document_1.txt
+            │   ├── document_2.txt
+            │   └── ...
+            └── comparison/
+                ├── document_1.txt
+                └── ...
+
+    Parameters
+    ----------
+    problem_type : str
+        Name of the problem directory, for example
+        ``"same_author"`` or ``"diff_author"``.
+
+    data_loc : str, default="../data"
+        Base location containing the problem directories.
+
+    Returns
+    -------
+    dict
+        Dictionary containing:
+
+        - ``reference_texts``:
+          List of texts from the reference directory.
+
+        - ``comparison_texts``:
+          List of texts from the comparison directory.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the problem, reference, or comparison directory
+        does not exist.
+
+    ValueError
+        If no text files are found in either directory.
+    """
+
+    # --------------------------------------------------------
+    # Build problem locations
+    # --------------------------------------------------------
+
+    problem_loc = Path(data_loc) / problem_type
+
+    reference_loc = problem_loc / "reference"
+    comparison_loc = problem_loc / "comparison"
+
+    # --------------------------------------------------------
+    # Check directories exist
+    # --------------------------------------------------------
+
+    if not problem_loc.exists():
+        raise FileNotFoundError(
+            f"Problem directory does not exist: {problem_loc}"
+        )
+
+    if not reference_loc.exists():
+        raise FileNotFoundError(
+            f"Reference directory does not exist: {reference_loc}"
+        )
+
+    if not comparison_loc.exists():
+        raise FileNotFoundError(
+            f"Comparison directory does not exist: {comparison_loc}"
+        )
+
+    # --------------------------------------------------------
+    # Get text file paths
+    # --------------------------------------------------------
+
+    reference_paths = sorted(
+        reference_loc.glob("*.txt")
+    )
+
+    comparison_paths = sorted(
+        comparison_loc.glob("*.txt")
+    )
+
+    # --------------------------------------------------------
+    # Check files were found
+    # --------------------------------------------------------
+
+    if not reference_paths:
+        raise ValueError(
+            f"No .txt files found in: {reference_loc}"
+        )
+
+    if not comparison_paths:
+        raise ValueError(
+            f"No .txt files found in: {comparison_loc}"
+        )
+
+    # --------------------------------------------------------
+    # Read texts
+    # --------------------------------------------------------
+
+    reference_texts = [
+        read_txt(str(path))
+        for path in reference_paths
+    ]
+
+    comparison_texts = [
+        read_txt(str(path))
+        for path in comparison_paths
+    ]
+
+    # --------------------------------------------------------
+    # Return problem data
+    # --------------------------------------------------------
+
+    return {
+        "reference_texts": reference_texts,
+        "comparison_texts": comparison_texts,
+    }
