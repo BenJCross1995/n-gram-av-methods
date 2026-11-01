@@ -1,0 +1,95 @@
+#!/bin/bash --login
+
+#SBATCH -n 1
+
+set -euo pipefail
+
+module load apps/binapps/anaconda3/2024.10
+conda activate venv
+
+# Variables supplied by either submitter
+for name in CORPUS DATA_TYPE MODEL SCRIPT_ROOT DATA_ROOT MODEL_ROOT \
+            EXPERIMENT_ROOT EXPERIMENT_NAME SAVE_SUBDIR COMPLETED_SUBDIR \
+            ERROR_SUBDIR PROBLEM_LIST_NAME MULTI_SCRIPT SCORE_SCRIPT_NAME \
+            FIXED_NUM_TOKENS; do
+    if [[ -z "${!name:-}" ]]; then
+        echo "ERROR: Missing ${name}" >&2
+        exit 1
+    fi
+done
+
+read -r -a FIXED_NUM_TOKENS_ARR <<< "${FIXED_NUM_TOKENS}"
+
+PROBLEM_LIST="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/${PROBLEM_LIST_NAME}"
+KNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/known_raw.jsonl"
+UNKNOWN_LOC="${DATA_ROOT}/${DATA_TYPE}/${CORPUS}/unknown_raw.jsonl"
+METADATA_LOC="${DATA_ROOT}/${DATA_TYPE}/metadata.rds"
+MODEL_LOC="${MODEL_ROOT}/${MODEL}"
+
+SAVE_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${SAVE_SUBDIR}"
+COMPLETED_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${COMPLETED_SUBDIR}"
+ERROR_LOC="${EXPERIMENT_ROOT}/${EXPERIMENT_NAME}/${DATA_TYPE}/${CORPUS}/${MODEL}/${ERROR_SUBDIR}"
+
+mkdir -p "${SAVE_LOC}" "${COMPLETED_LOC}" "${ERROR_LOC}"
+
+# Each array index refers to a non-empty line in agg_problem_list.txt
+PROBLEM="$(awk -v n="${SLURM_ARRAY_TASK_ID:?Missing SLURM_ARRAY_TASK_ID}" \
+    'NF {c++} c==n {print; exit}' "${PROBLEM_LIST}")"
+if [[ -z "${PROBLEM}" ]]; then
+    echo "ERROR: No problem for task ${SLURM_ARRAY_TASK_ID} in ${PROBLEM_LIST}" >&2
+    exit 1
+fi
+
+echo "============================================================"
+echo "Corpus           : ${CORPUS}"
+echo "Data type        : ${DATA_TYPE}"
+echo "Model            : ${MODEL}"
+echo "Problem          : ${PROBLEM}"
+echo "Array index      : ${SLURM_ARRAY_TASK_ID}"
+echo "Context tokens   : ${FIXED_NUM_TOKENS}"
+echo "Output directory : ${SAVE_LOC}_<num_tokens>"
+echo "============================================================"
+
+# Optional n-gram length controls
+NGRAM_ARGS=()
+if [[ -n "${MIN_LEN:-}" ]]; then
+    NGRAM_ARGS+=(--min_len "${MIN_LEN}")
+fi
+if [[ -n "${MAX_LEN:-}" ]]; then
+    NGRAM_ARGS+=(--max_len "${MAX_LEN}")
+fi
+
+# Pass all preprocessing settings explicitly to the multi-script.
+# The multi-script forwards these to score_ngrams_distributions.py.
+PREPROCESS_ARGS=()
+for setting in lowercase remove_punctuation remove_symbols remove_numeric remove_url; do
+    key="$(printf '%s' "${setting}" | tr '[:lower:]' '[:upper:]')"
+    value="${!key:-true}"
+    flag="${setting//_/-}"
+    case "${value}" in
+        true)  PREPROCESS_ARGS+=("--${flag}") ;;
+        false) PREPROCESS_ARGS+=("--no-${flag}") ;;
+        *) echo "ERROR: ${key} must be true or false, got ${value}" >&2; exit 1 ;;
+    esac
+done
+
+# There is deliberately NO --greatest_common flag here: the new scoring
+# script calculates occurrence-aware n-grams separately, and that argument
+# is unsupported by score_ngrams_distributions.py.
+python -u "${SCRIPT_ROOT}/${MULTI_SCRIPT}" \
+    --known_loc "${KNOWN_LOC}" \
+    --unknown_loc "${UNKNOWN_LOC}" \
+    --metadata_loc "${METADATA_LOC}" \
+    --model_loc "${MODEL_LOC}" \
+    --save_loc "${SAVE_LOC}" \
+    --completed_loc "${COMPLETED_LOC}" \
+    --error_loc "${ERROR_LOC}" \
+    --corpus "${CORPUS}" \
+    --data_type "${DATA_TYPE}" \
+    --problem "${PROBLEM}" \
+    --score_script "${SCORE_SCRIPT_NAME}" \
+    --fixed_num_tokens "${FIXED_NUM_TOKENS_ARR[@]}" \
+    "${NGRAM_ARGS[@]}" \
+    "${PREPROCESS_ARGS[@]}"
+
+echo "Finished successfully."
