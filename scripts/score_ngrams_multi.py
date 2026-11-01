@@ -39,6 +39,16 @@ def parse_args():
     ap.add_argument("--no-lowercase", dest="lowercase", action="store_false")
     ap.set_defaults(lowercase=True)
 
+    # Only forwarded to score_ngrams_distributions (the new pipeline).
+    for name in ("remove_punctuation", "remove_symbols", "remove_numeric", "remove_url"):
+        ap.add_argument(
+            "--" + name,
+            "--" + name.replace("_", "-"),
+            dest=name,
+            action=argparse.BooleanOptionalAction,
+            default=True,
+        )
+        
     # Keep for "same args" compatibility; ignored here (we override per loop)
     ap.add_argument("--num_tokens", type=int, default=None)
     
@@ -97,7 +107,10 @@ def main():
         base_cmd += ["--unknown_doc", str(args.unknown_doc)]
         base_cmd += ["--compute_type", str(args.compute_type)]
 
-    if args.score_script == "score_ngrams_concat":
+    if args.score_script in ("score_ngrams_concat", "score_ngrams_distributions"):
+        if not args.problem:
+            ap_error = "--problem is required for the selected score_script"
+            raise ValueError(ap_error)
         base_cmd += ["--problem", str(args.problem)]
         
         #  For the time being only using greatest_common on concat
@@ -112,6 +125,16 @@ def main():
         
     if args.lowercase:
         base_cmd.append("--lowercase")
+    elif args.score_script == "score_ngrams_distributions":
+        base_cmd.append("--no-lowercase")
+
+    if args.score_script == "score_ngrams_distributions":
+        for name in ("remove_punctuation", "remove_symbols", "remove_numeric", "remove_url"):
+            base_cmd.append(
+                "--" + name.replace("_", "-")
+                if getattr(args, name)
+                else "--no-" + name.replace("_", "-")
+            )
 
     # Only pass completed_loc/error_loc if provided
     has_completed = bool(args.completed_loc)
