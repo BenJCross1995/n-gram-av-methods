@@ -58,8 +58,8 @@ MODEL_LIST=("gpt2")
 
 # Small run: ONLY Perverted Justice and Enron Cleaned at 10 context tokens
 CORPORA=(
-    "Perverted Justice"
-    "Enron Cleaned"
+    "StackExchange"
+    "Wiki"
 )
 
 DATA_TYPES=("test" "training")
